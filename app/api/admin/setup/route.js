@@ -60,6 +60,30 @@ export async function POST(request) {
                    values ($1,$2,$3,$4)`, [itemCode.trim().toUpperCase(), description.trim(), unitOfMeasure.trim(), standardCost === '' ? null : Number(standardCost)]);
       return NextResponse.json({ ok: true });
     }
+    if (type === 'materialsImport') {
+      if (!Array.isArray(body.materials) || body.materials.length === 0) throw new Error('Choose a CSV file with at least one material.');
+      if (body.materials.length > 1000) throw new Error('Import up to 1,000 materials at a time.');
+      let imported = 0;
+      const skipped = [];
+      for (const [index, material] of body.materials.entries()) {
+        const itemCode = String(material.itemCode || '').trim().toUpperCase();
+        const description = String(material.description || '').trim();
+        const unitOfMeasure = String(material.unitOfMeasure || '').trim();
+        const rawCost = String(material.standardCost ?? '').trim();
+        const standardCost = rawCost === '' ? null : Number(rawCost);
+        if (!itemCode || !description || !unitOfMeasure || (rawCost !== '' && !Number.isFinite(standardCost))) {
+          skipped.push(index + 2);
+          continue;
+        }
+        await query(`insert into materials(item_code,description,unit_of_measure,standard_cost)
+                     values ($1,$2,$3,$4)
+                     on conflict (item_code) do update set description=excluded.description,
+                       unit_of_measure=excluded.unit_of_measure,standard_cost=excluded.standard_cost,active=true`,
+          [itemCode, description, unitOfMeasure, standardCost]);
+        imported += 1;
+      }
+      return NextResponse.json({ imported, skipped });
+    }
     if (type === 'guidance') {
       const { scopeType, role, departmentId, title, instructions, dailyGoal } = body;
       if (!['role','department'].includes(scopeType) || !title?.trim()) throw new Error('Choose a scope and provide a title.');
