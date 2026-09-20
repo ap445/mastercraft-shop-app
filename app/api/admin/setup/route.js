@@ -42,14 +42,15 @@ export async function POST(request) {
       return NextResponse.json({ item: result.rows[0] });
     }
     if (type === 'employee') {
-      const { id, employeeCode, fullName, departmentId, role, pin } = body;
+      const { id, employeeCode, fullName, departmentId, role, pin, active } = body;
       if (!employeeCode?.trim() || !fullName?.trim() || (!id && (!pin || String(pin).length < 4))) throw new Error('Employee code, name, and a four-digit PIN are required for a new employee.');
       if (!['employee', 'supervisor', 'admin'].includes(role)) throw new Error('Choose a valid role.');
       if (id) {
         if (pin && String(pin).length < 4) throw new Error('A replacement PIN must have at least four digits.');
-        const values=[employeeCode.trim().toUpperCase(),fullName.trim(),departmentId||null,role,id];
-        let sql='update employees set employee_code=$1,full_name=$2,department_id=$3,role=$4';
-        if (pin) { values.splice(4,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$5 where id=$6'; } else sql+=' where id=$5';
+        const isActive = active !== false;
+        const values=[employeeCode.trim().toUpperCase(),fullName.trim(),departmentId||null,role,isActive,id];
+        let sql='update employees set employee_code=$1,full_name=$2,department_id=$3,role=$4,active=$5';
+        if (pin) { values.splice(5,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$6 where id=$7'; } else sql+=' where id=$6';
         await query(sql,values);
       } else {
         const hash = await bcrypt.hash(String(pin), 10);
@@ -58,28 +59,30 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
     if (type === 'job') {
-      const { id, jobNumber, customerName, description, dueDate, priority } = body;
+      const { id, jobNumber, customerName, description, dueDate, priority, status } = body;
       if (!jobNumber?.trim() || !description?.trim()) throw new Error('Job number and description are required.');
-      if(id) await query('update jobs set job_number=$1,customer_name=$2,description=$3,due_date=$4,priority=$5 where id=$6',[jobNumber.trim().toUpperCase(),customerName?.trim()||null,description.trim(),dueDate||null,Number(priority)||3,id]);
+      const validStatus = ['not_started','in_progress','on_hold','complete','closed'].includes(status) ? status : 'not_started';
+      if(id) await query('update jobs set job_number=$1,customer_name=$2,description=$3,due_date=$4,priority=$5,status=$6 where id=$7',[jobNumber.trim().toUpperCase(),customerName?.trim()||null,description.trim(),dueDate||null,Number(priority)||3,validStatus,id]);
       else await query(`insert into jobs(job_number,customer_name,description,due_date,priority) values ($1,$2,$3,$4,$5)`, [jobNumber.trim().toUpperCase(), customerName?.trim() || null, description.trim(), dueDate || null, Number(priority) || 3]);
       return NextResponse.json({ ok: true });
     }
     if (type === 'material') {
-      const { id, itemCode, description, unitOfMeasure, standardCost } = body;
+      const { id, itemCode, description, unitOfMeasure, standardCost, active } = body;
       if (!itemCode?.trim() || !description?.trim() || !unitOfMeasure?.trim()) throw new Error('Item code, description, and unit of measure are required.');
-      if(id) await query('update materials set item_code=$1,description=$2,unit_of_measure=$3,standard_cost=$4 where id=$5',[itemCode.trim().toUpperCase(),description.trim(),unitOfMeasure.trim(),standardCost===''?null:Number(standardCost),id]);
+      if(id) await query('update materials set item_code=$1,description=$2,unit_of_measure=$3,standard_cost=$4,active=$5 where id=$6',[itemCode.trim().toUpperCase(),description.trim(),unitOfMeasure.trim(),standardCost===''?null:Number(standardCost),active!==false,id]);
       else await query(`insert into materials(item_code,description,unit_of_measure,standard_cost) values ($1,$2,$3,$4)`, [itemCode.trim().toUpperCase(), description.trim(), unitOfMeasure.trim(), standardCost === '' ? null : Number(standardCost)]);
       return NextResponse.json({ ok: true });
     }
     if (type === 'operation') {
-      const { id, jobId, departmentId, operationName, sequenceNo, estimatedHours, plannedStart, plannedFinish } = body;
+      const { id, jobId, departmentId, operationName, sequenceNo, estimatedHours, plannedStart, plannedFinish, status } = body;
       if (!jobId || !departmentId || !operationName?.trim()) throw new Error('Job, department, and operation name are required.');
       const seq = Number(sequenceNo) || 1;
       const hours = estimatedHours === '' || estimatedHours == null ? null : Number(estimatedHours);
+      const validStatus = ['queued','ready','in_progress','paused','blocked','complete'].includes(status) ? status : 'queued';
       try {
         if (id) await query(
-          `update operations set job_id=$1,department_id=$2,operation_name=$3,sequence_no=$4,estimated_hours=$5,planned_start=$6,planned_finish=$7 where id=$8`,
-          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null, id]
+          `update operations set job_id=$1,department_id=$2,operation_name=$3,sequence_no=$4,estimated_hours=$5,planned_start=$6,planned_finish=$7,status=$8 where id=$9`,
+          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null, validStatus, id]
         );
         else await query(
           `insert into operations(job_id,department_id,operation_name,sequence_no,estimated_hours,planned_start,planned_finish)
