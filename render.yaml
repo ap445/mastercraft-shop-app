@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: mastercraft-shop
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm run db:init && npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20.19.5
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mastercraft-shop-db
+          property: connectionString
+      - key: APP_SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_SSL
+        value: ""
+
+databases:
+  - name: mastercraft-shop-db
+    databaseName: mastercraft_shop
+    user: mastercraft_shop
