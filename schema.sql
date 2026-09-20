@@ -82,6 +82,21 @@ create table if not exists materials (
   active boolean not null default true
 );
 
+create table if not exists daily_guidance (
+  id bigserial primary key,
+  scope_type text not null check (scope_type in ('role','department')),
+  role text check (role in ('employee','supervisor','admin')),
+  department_id bigint references departments(id) on delete cascade,
+  title text not null,
+  instructions text,
+  daily_goal text,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  check ((scope_type='role' and role is not null and department_id is null) or (scope_type='department' and department_id is not null and role is null))
+);
+create unique index if not exists daily_guidance_role_unique on daily_guidance(role) where scope_type='role';
+create unique index if not exists daily_guidance_department_unique on daily_guidance(department_id) where scope_type='department';
+
 create table if not exists material_transactions (
   id bigserial primary key,
   job_id bigint not null references jobs(id),

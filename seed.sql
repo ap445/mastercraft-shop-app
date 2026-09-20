@@ -7,6 +7,9 @@ on conflict(employee_code) do nothing;
 insert into employees(employee_code,full_name,department_id,role,pin_hash)
 select 'S1001','Sarah Supervisor',id,'supervisor',crypt('2468',gen_salt('bf')) from departments where name='Fabrication'
 on conflict(employee_code) do nothing;
+insert into employees(employee_code,full_name,department_id,role,pin_hash)
+select 'A1001','Mastercraft Admin',id,'admin',crypt('8642',gen_salt('bf')) from departments where name='Engineering'
+on conflict(employee_code) do nothing;
 
 insert into jobs(job_number,customer_name,description,due_date,priority,status)
 values ('MC-26042','ABC Manufacturing','Bracket Assembly',current_date+7,2,'in_progress'),

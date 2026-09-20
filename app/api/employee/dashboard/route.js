@@ -8,7 +8,7 @@ export async function GET() {
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const employeeId = auth.session.employeeId;
 
-    const [employeeR, activeR, assignmentsR, materialsR] = await Promise.all([
+    const [employeeR, activeR, assignmentsR, materialsR, guidanceR] = await Promise.all([
       query(`select e.id,e.employee_code,e.full_name,e.role,
                     case when d.id is null then null else json_build_object('name',d.name) end as departments
              from employees e left join departments d on d.id=e.department_id where e.id=$1`, [employeeId]),
@@ -32,14 +32,19 @@ export async function GET() {
              join departments d on d.id=o.department_id
              where a.employee_id=$1 and o.status <> 'complete'
              order by a.assigned_at asc`, [employeeId]),
-      query(`select id,item_code,description,unit_of_measure,standard_cost from materials where active=true order by description`)
+      query(`select id,item_code,description,unit_of_measure,standard_cost from materials where active=true order by description`),
+      query(`select g.id,g.scope_type,g.title,g.instructions,g.daily_goal,d.name as department_name
+             from daily_guidance g left join employees e on e.id=$1 left join departments d on d.id=g.department_id
+             where g.active=true and ((g.scope_type='role' and g.role=e.role) or (g.scope_type='department' and g.department_id=e.department_id))
+             order by g.scope_type`, [employeeId])
     ]);
 
     return NextResponse.json({
       employee: employeeR.rows[0] || null,
       active: activeR.rows[0] || null,
       assignments: assignmentsR.rows,
-      materials: materialsR.rows
+      materials: materialsR.rows,
+      guidance: guidanceR.rows
     });
   } catch (e) {
     return NextResponse.json({ error: e.message }, { status: 500 });

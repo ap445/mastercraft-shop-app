@@ -17,6 +17,7 @@ export default function EmployeePage(){
   return <main className="shell"><div className="topbar"><div className="brand">MASTERCRAFT</div><button className="toplink" onClick={logout}>Sign out</button></div><div className="container narrow">
     <div className="card identity"><div><div className="kicker">Employee</div><div className="big">{data.employee.full_name}</div><div className="muted">{data.employee.departments?.name||'Unassigned Department'}</div></div><span className="badge active">Online</span></div>
     {error&&<div className="alert error">{error}</div>}
+    {data.guidance?.length>0&&<div className="card"><div className="kicker">Today’s guidance</div>{data.guidance.map(g=><div className="guidance" key={g.id}><strong>{g.title}</strong>{g.instructions&&<div className="muted">{g.instructions}</div>}{g.daily_goal&&<div className="goal">Daily goal: {g.daily_goal}</div>}</div>)}</div>}
     {active ? <>
       <div className="card current-card"><div className="kicker">Current Job</div><div className="big jobno">{active.jobs?.job_number||'Indirect'}</div><div className="jobtitle">{active.jobs?.description||active.entry_type}</div><div className="muted">{active.operations?.operation_name||'Non-job time'}</div><div className="timer">{elapsed}</div>
         <button className="btn good" onClick={()=>document.getElementById('material')?.scrollIntoView({behavior:'smooth'})}>ADD MATERIAL</button>
