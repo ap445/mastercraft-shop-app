@@ -13,16 +13,20 @@ export async function GET() {
   try {
     const denied = await requireAdmin();
     if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
-    const [departments, employees, jobs, materials, guidance] = await Promise.all([
+    const [departments, employees, jobs, materials, guidance, operations] = await Promise.all([
       query('select id,name,active from departments order by name'),
       query(`select e.id,e.employee_code,e.full_name,e.department_id,e.role,e.active,d.name as department_name
              from employees e left join departments d on d.id=e.department_id order by e.full_name`),
       query('select id,job_number,customer_name,description,due_date,priority,status from jobs order by created_at desc'),
       query('select id,item_code,description,unit_of_measure,standard_cost,active from materials order by item_code'),
       query(`select g.id,g.scope_type,g.role,g.department_id,g.title,g.instructions,g.daily_goal,d.name as department_name
-             from daily_guidance g left join departments d on d.id=g.department_id where g.active=true order by g.scope_type,g.title`)
+             from daily_guidance g left join departments d on d.id=g.department_id where g.active=true order by g.scope_type,g.title`),
+      query(`select o.id,o.job_id,o.department_id,o.operation_name,o.sequence_no,o.estimated_hours,o.planned_start,o.planned_finish,o.status,
+                    j.job_number,j.description as job_description,d.name as department_name
+             from operations o join jobs j on j.id=o.job_id join departments d on d.id=o.department_id
+             order by j.job_number,o.sequence_no`)
     ]);
-    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows });
+    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows });
   } catch (e) { return NextResponse.json({ error: e.message || 'Unable to load setup data.' }, { status: 500 }); }
 }
 
@@ -65,6 +69,27 @@ export async function POST(request) {
       if (!itemCode?.trim() || !description?.trim() || !unitOfMeasure?.trim()) throw new Error('Item code, description, and unit of measure are required.');
       if(id) await query('update materials set item_code=$1,description=$2,unit_of_measure=$3,standard_cost=$4 where id=$5',[itemCode.trim().toUpperCase(),description.trim(),unitOfMeasure.trim(),standardCost===''?null:Number(standardCost),id]);
       else await query(`insert into materials(item_code,description,unit_of_measure,standard_cost) values ($1,$2,$3,$4)`, [itemCode.trim().toUpperCase(), description.trim(), unitOfMeasure.trim(), standardCost === '' ? null : Number(standardCost)]);
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'operation') {
+      const { id, jobId, departmentId, operationName, sequenceNo, estimatedHours, plannedStart, plannedFinish } = body;
+      if (!jobId || !departmentId || !operationName?.trim()) throw new Error('Job, department, and operation name are required.');
+      const seq = Number(sequenceNo) || 1;
+      const hours = estimatedHours === '' || estimatedHours == null ? null : Number(estimatedHours);
+      try {
+        if (id) await query(
+          `update operations set job_id=$1,department_id=$2,operation_name=$3,sequence_no=$4,estimated_hours=$5,planned_start=$6,planned_finish=$7 where id=$8`,
+          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null, id]
+        );
+        else await query(
+          `insert into operations(job_id,department_id,operation_name,sequence_no,estimated_hours,planned_start,planned_finish)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null]
+        );
+      } catch (e) {
+        if (e.code === '23505') throw new Error(`This job already has an operation with sequence #${seq}. Choose a different sequence number.`);
+        throw e;
+      }
       return NextResponse.json({ ok: true });
     }
     if (type === 'materialsImport') {
