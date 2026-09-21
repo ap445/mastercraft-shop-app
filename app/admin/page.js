@@ -20,7 +20,7 @@ function weekLayout(week,ops,maxTracks){const weekStart=week[0],weekEnd=week[6];
 
 
 export default function AdminPage(){
-  const router=useRouter(); const [data,setData]=useState(null); const [forms,setForms]=useState(blank); const [error,setError]=useState(''); const [notice,setNotice]=useState(''); const [busy,setBusy]=useState(false); const [importing,setImporting]=useState(false); const [importFeedback,setImportFeedback]=useState(''); const [calView,setCalView]=useState('month'); const [calAnchor,setCalAnchor]=useState(()=>{const d=new Date();d.setHours(0,0,0,0);return d;}); const [recordDetail,setRecordDetail]=useState(null);
+  const router=useRouter(); const [data,setData]=useState(null); const [forms,setForms]=useState(blank); const [error,setError]=useState(''); const [notice,setNotice]=useState(''); const [busy,setBusy]=useState(false); const [importing,setImporting]=useState(false); const [importFeedback,setImportFeedback]=useState(''); const [calView,setCalView]=useState('month'); const [calAnchor,setCalAnchor]=useState(()=>{const d=new Date();d.setHours(0,0,0,0);return d;}); const [recordDetail,setRecordDetail]=useState(null); const [pendingScroll,setPendingScroll]=useState(false);
   const detail=useMemo(()=>{
     if(!recordDetail||!data)return null;
     const {type,id}=recordDetail;
@@ -63,7 +63,6 @@ export default function AdminPage(){
   useEffect(()=>{if(pendingScroll&&detail){document.getElementById('record-detail')?.scrollIntoView({behavior:'smooth',block:'start'});setPendingScroll(false);}},[pendingScroll,detail]);
   const load=useCallback(async()=>{const res=await fetch('/api/admin/setup',{cache:'no-store'}); if(res.status===401||res.status===403){router.push('/login');return null;} const json=await res.json();if(!res.ok){setError(json.error);return null;} setData(json);return json;},[router]);
   useEffect(()=>{load();},[load]);
-  const [pendingScroll,setPendingScroll]=useState(false);
   useEffect(()=>{try{const params=new URLSearchParams(window.location.search);const d=params.get('detail');if(d){const dash=d.indexOf('-');const type=d.slice(0,dash),id=d.slice(dash+1);if(['job','operation','employee','material'].includes(type)&&id){setRecordDetail({type,id});setPendingScroll(true);}}}catch{}},[]);
   function change(type,key,value){setForms(f=>({...f,[type]:{...f[type],[key]:value}}));}
 function changeOperationJob(jobId){setForms(f=>{if(f.operation.id)return{...f,operation:{...f.operation,jobId}};return{...f,operation:{...f.operation,jobId,sequenceNo:String(nextSequenceFor(jobId,data.operations))}};});}
