@@ -9,7 +9,7 @@ export async function GET() {
     const [activeR, operationsR, employeesR, departmentsR] = await Promise.all([
       query(`select te.id,te.started_at,
                     json_build_object('id',e.id,'full_name',e.full_name) as employees,
-                    json_build_object('job_number',j.job_number,'description',j.description) as jobs,
+                    json_build_object('id',j.id,'job_number',j.job_number,'description',j.description) as jobs,
                     json_build_object('id',o.id,'operation_name',o.operation_name,'departments',json_build_object('name',d.name)) as operations
              from time_entries te
              join employees e on e.id=te.employee_id

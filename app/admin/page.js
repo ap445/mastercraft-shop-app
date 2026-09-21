@@ -60,8 +60,11 @@ export default function AdminPage(){
     }
     return null;
   },[recordDetail,data]);
+  useEffect(()=>{if(pendingScroll&&detail){document.getElementById('record-detail')?.scrollIntoView({behavior:'smooth',block:'start'});setPendingScroll(false);}},[pendingScroll,detail]);
   const load=useCallback(async()=>{const res=await fetch('/api/admin/setup',{cache:'no-store'}); if(res.status===401||res.status===403){router.push('/login');return null;} const json=await res.json();if(!res.ok){setError(json.error);return null;} setData(json);return json;},[router]);
   useEffect(()=>{load();},[load]);
+  const [pendingScroll,setPendingScroll]=useState(false);
+  useEffect(()=>{try{const params=new URLSearchParams(window.location.search);const d=params.get('detail');if(d){const dash=d.indexOf('-');const type=d.slice(0,dash),id=d.slice(dash+1);if(['job','operation','employee','material'].includes(type)&&id){setRecordDetail({type,id});setPendingScroll(true);}}}catch{}},[]);
   function change(type,key,value){setForms(f=>({...f,[type]:{...f[type],[key]:value}}));}
 function changeOperationJob(jobId){setForms(f=>{if(f.operation.id)return{...f,operation:{...f.operation,jobId}};return{...f,operation:{...f.operation,jobId,sequenceNo:String(nextSequenceFor(jobId,data.operations))}};});}
 function changeOperationDept(deptId){setForms(f=>{const dept=data.departments.find(d=>String(d.id)===String(deptId));const nameWasAuto=!f.operation.operationName||data.departments.some(d=>d.name===f.operation.operationName);return{...f,operation:{...f.operation,departmentId:deptId,operationName:(nameWasAuto&&dept)?dept.name:f.operation.operationName}};});}
@@ -81,6 +84,7 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
     if(!recordDetail)return null;
     if(!detail)return <div className="card empty" id="record-detail">That record could not be found — it may have been removed.<button type="button" className="btn secondary compact" onClick={()=>setRecordDetail(null)}>CLOSE</button></div>;
     const closeBtn=<button type="button" className="btn secondary compact" style={{marginTop:0}} onClick={()=>setRecordDetail(null)}>CLOSE</button>;
+    const xref=(type,id,label)=>id?<button type="button" className="xref" onClick={()=>setRecordDetail({type,id})}>{label}</button>:(label||'—');
     if(detail.type==='job'){
       const {job,ops,te,mt,estimatedHours,actualHours,materialCost}=detail;
       return <div className="card" id="record-detail"><div className="row"><div className="kicker">Job detail</div>{closeBtn}</div>
@@ -88,15 +92,15 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
         <p className="muted">{job.customer_name||'No customer on file'} · <span className="badge">{String(job.status).replaceAll('_',' ')}</span> · {hoursFmt(actualHours)} of {hoursFmt(estimatedHours)} estimated hours logged · {money(materialCost)} in materials · <a href="/admin/costing">Full costing view</a></p>
         <div className="kicker" style={{marginTop:'14px'}}>Schedule (operations)</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>#</th><th>Operation</th><th>Dept</th><th>Est.</th><th>Assigned</th><th>Status</th></tr></thead><tbody>
-          {ops.length===0?<tr><td colSpan="6" className="muted">No operations scheduled yet.</td></tr>:ops.map(o=><tr key={o.id} style={{cursor:'pointer'}} onClick={()=>setRecordDetail({type:'operation',id:o.id})}><td>{o.sequence_no}</td><td>{o.operation_name}</td><td>{o.department_name}</td><td>{o.estimated_hours||'—'}</td><td>{(o.assigned||[]).length===0?'—':o.assigned.map(a=>a.full_name).join(', ')}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td></tr>)}
+          {ops.length===0?<tr><td colSpan="6" className="muted">No operations scheduled yet.</td></tr>:ops.map(o=><tr key={o.id}><td><button type="button" className="xref" onClick={()=>setRecordDetail({type:'operation',id:o.id})}>{o.sequence_no}</button></td><td><button type="button" className="xref" onClick={()=>setRecordDetail({type:'operation',id:o.id})}>{o.operation_name}</button></td><td>{o.department_name}</td><td>{o.estimated_hours||'—'}</td><td>{(o.assigned||[]).length===0?'—':o.assigned.map((a,i)=><span key={a.employee_id}>{i>0?', ':''}{xref('employee',a.employee_id,a.full_name)}</span>)}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td></tr>)}
         </tbody></table></div>
         <div className="kicker" style={{marginTop:'14px'}}>Time entries</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Employee</th><th>Operation</th><th>Started</th><th>Stopped</th><th>Hours</th></tr></thead><tbody>
-          {te.length===0?<tr><td colSpan="5" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{t.employee_name}</td><td>{t.operation_name||'—'}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
+          {te.length===0?<tr><td colSpan="5" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{xref('employee',t.employee_id,t.employee_name)}</td><td>{xref('operation',t.operation_id,t.operation_name||'—')}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
         </tbody></table></div>
         <div className="kicker" style={{marginTop:'14px'}}>Material transactions</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Material</th><th>Type</th><th>Qty</th><th>Total</th><th>Employee</th><th>Date</th></tr></thead><tbody>
-          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td><strong>{m.item_code}</strong> {m.material_description}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{m.employee_name}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
+          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{xref('material',m.material_id,<><strong>{m.item_code}</strong> {m.material_description}</>)}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{xref('employee',m.employee_id,m.employee_name)}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
         </tbody></table></div>
       </div>;
     }
@@ -107,14 +111,14 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
         <p className="muted">{op.job_number?<>Job <strong>{op.job_number}</strong> — {op.job_description}</>:'No job on file'} · <span className="badge">{String(op.status).replaceAll('_',' ')}</span> · {hoursFmt(actualHours)} of {op.estimated_hours||'0'} estimated hours logged · {money(materialCost)} in materials</p>
         {job?<p className="hint"><a href="#" onClick={e=>{e.preventDefault();setRecordDetail({type:'job',id:job.id});}}>See the full job →</a></p>:null}
         <div className="kicker" style={{marginTop:'10px'}}>Assigned</div>
-        <p>{(op.assigned||[]).length===0?<span className="muted">No one assigned yet — do that from the Supervisor Board.</span>:op.assigned.map(a=><span className="badge" key={a.employee_id} style={{marginRight:'6px'}}>{a.full_name}</span>)}</p>
+        <p>{(op.assigned||[]).length===0?<span className="muted">No one assigned yet — do that from the Supervisor Board.</span>:op.assigned.map(a=><button type="button" key={a.employee_id} className="badge" style={{marginRight:'6px',border:0,cursor:'pointer'}} onClick={()=>setRecordDetail({type:'employee',id:a.employee_id})}>{a.full_name}</button>)}</p>
         <div className="kicker" style={{marginTop:'14px'}}>Time entries</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Employee</th><th>Started</th><th>Stopped</th><th>Hours</th></tr></thead><tbody>
-          {te.length===0?<tr><td colSpan="4" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{t.employee_name}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
+          {te.length===0?<tr><td colSpan="4" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{xref('employee',t.employee_id,t.employee_name)}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
         </tbody></table></div>
         <div className="kicker" style={{marginTop:'14px'}}>Material transactions</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Material</th><th>Type</th><th>Qty</th><th>Total</th><th>Employee</th><th>Date</th></tr></thead><tbody>
-          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td><strong>{m.item_code}</strong> {m.material_description}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{m.employee_name}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
+          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{xref('material',m.material_id,<><strong>{m.item_code}</strong> {m.material_description}</>)}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{xref('employee',m.employee_id,m.employee_name)}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
         </tbody></table></div>
       </div>;
     }
@@ -125,15 +129,15 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
         <p className="muted">{employee.department_name||'No department'} · <span className="badge">{employee.role}</span>{employee.active===false?<span className="badge"> inactive</span>:null} · {hoursFmt(totalHours)} hours logged total</p>
         <div className="kicker" style={{marginTop:'14px'}}>Assigned schedule steps</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Job</th><th>Operation</th><th>Dept</th><th>Planned</th><th>Status</th></tr></thead><tbody>
-          {assigned.length===0?<tr><td colSpan="5" className="muted">Not assigned to anything yet.</td></tr>:assigned.map(o=><tr key={o.id} style={{cursor:'pointer'}} onClick={()=>setRecordDetail({type:'operation',id:o.id})}><td>{o.job_number}</td><td>#{o.sequence_no} {o.operation_name}</td><td>{o.department_name}</td><td>{o.planned_start?String(o.planned_start).slice(0,10):'—'}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td></tr>)}
+          {assigned.length===0?<tr><td colSpan="5" className="muted">Not assigned to anything yet.</td></tr>:assigned.map(o=><tr key={o.id}><td>{xref('job',o.job_id,o.job_number)}</td><td><button type="button" className="xref" onClick={()=>setRecordDetail({type:'operation',id:o.id})}>#{o.sequence_no} {o.operation_name}</button></td><td>{o.department_name}</td><td>{o.planned_start?String(o.planned_start).slice(0,10):'—'}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td></tr>)}
         </tbody></table></div>
         <div className="kicker" style={{marginTop:'14px'}}>Time logged</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Job</th><th>Operation</th><th>Started</th><th>Stopped</th><th>Hours</th></tr></thead><tbody>
-          {te.length===0?<tr><td colSpan="5" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{t.job_number||'—'}</td><td>{t.operation_name||'—'}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
+          {te.length===0?<tr><td colSpan="5" className="muted">No time logged yet.</td></tr>:te.map(t=><tr key={t.id}><td>{xref('job',t.job_id,t.job_number||'—')}</td><td>{xref('operation',t.operation_id,t.operation_name||'—')}</td><td>{fmtDateTime(t.started_at)}</td><td>{t.stopped_at?fmtDateTime(t.stopped_at):<span className="badge active">still running</span>}</td><td>{hoursFmt(t.hours)}</td></tr>)}
         </tbody></table></div>
         <div className="kicker" style={{marginTop:'14px'}}>Materials issued/returned</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Job</th><th>Material</th><th>Type</th><th>Qty</th><th>Total</th><th>Date</th></tr></thead><tbody>
-          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{m.job_number||'—'}</td><td><strong>{m.item_code}</strong> {m.material_description}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
+          {mt.length===0?<tr><td colSpan="6" className="muted">No materials logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{xref('job',m.job_id,m.job_number||'—')}</td><td>{xref('material',m.material_id,<><strong>{m.item_code}</strong> {m.material_description}</>)}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
         </tbody></table></div>
       </div>;
     }
@@ -144,7 +148,7 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
         <p className="muted">{material.unit_of_measure}{material.standard_cost==null?'':` · standard cost ${money(material.standard_cost)}`}{material.active===false?<span className="badge"> inactive</span>:null} · net {netQty.toFixed(2)} {material.unit_of_measure} issued · {money(netCost)} net cost</p>
         <div className="kicker" style={{marginTop:'14px'}}>Transactions</div>
         <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Job</th><th>Type</th><th>Qty</th><th>Total</th><th>Employee</th><th>Date</th></tr></thead><tbody>
-          {mt.length===0?<tr><td colSpan="6" className="muted">No transactions logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{m.job_number||'—'}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{m.employee_name}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
+          {mt.length===0?<tr><td colSpan="6" className="muted">No transactions logged yet.</td></tr>:mt.map(m=><tr key={m.id}><td>{xref('job',m.job_id,m.job_number||'—')}</td><td><span className="badge">{m.transaction_type}</span></td><td>{m.quantity} {m.unit_of_measure}</td><td>{money(Number(m.quantity)*Number(m.unit_cost||0))}</td><td>{xref('employee',m.employee_id,m.employee_name)}</td><td>{fmtDateTime(m.occurred_at)}</td></tr>)}
         </tbody></table></div>
       </div>;
     }

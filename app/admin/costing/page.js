@@ -7,6 +7,7 @@ function hoursFmt(h) { return (Math.round((h || 0) * 100) / 100).toFixed(2); }
 function money(n) { return '$' + (Math.round((n || 0) * 100) / 100).toFixed(2); }
 function fmtDateTime(s) { if (!s) return '—'; const d = new Date(s); return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
 function csvValue(value) { const text = String(value ?? ''); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
+function Xref({ type, id, children }) { if (!id) return children ?? '—'; return <a className="xref" href={`/admin?detail=${type}-${id}#records`}>{children}</a>; }
 function downloadCsv(filename, rows) {
   const blob = new Blob([rows.map(r => r.map(csvValue).join(',')).join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
@@ -139,7 +140,7 @@ export default function JobCostingPage() {
       {selectedJob ? <div className="card">
         <div className="kicker">Detail</div>
         <h2>{selectedJob.job_number} — {selectedJob.description}</h2>
-        <p className="muted">{selectedJob.customer_name || 'No customer on file'} · {hoursFmt(selectedJob.actualHours)} of {hoursFmt(selectedJob.estimatedHours)} estimated hours logged · {money(selectedJob.materialCost)} in materials</p>
+        <p className="muted">{selectedJob.customer_name || 'No customer on file'} · {hoursFmt(selectedJob.actualHours)} of {hoursFmt(selectedJob.estimatedHours)} estimated hours logged · {money(selectedJob.materialCost)} in materials · <a href={`/admin?detail=job-${selectedJob.id}#records`}>View full job record (schedule &amp; assignments) →</a></p>
 
         <div className="kicker" style={{ marginTop: '14px' }}>Time entries</div>
         <div className="table-wrap">
@@ -148,8 +149,8 @@ export default function JobCostingPage() {
             <tbody>
               {selectedTimeEntries.length === 0 ? <tr><td colSpan="5" className="muted">No time logged on this job yet.</td></tr> : selectedTimeEntries.map(te => (
                 <tr key={te.id}>
-                  <td>{te.employee_name}</td>
-                  <td>{te.operation_name || '—'}</td>
+                  <td><Xref type="employee" id={te.employee_id}>{te.employee_name}</Xref></td>
+                  <td><Xref type="operation" id={te.operation_id}>{te.operation_name || '—'}</Xref></td>
                   <td>{fmtDateTime(te.started_at)}</td>
                   <td>{te.stopped_at ? fmtDateTime(te.stopped_at) : <span className="badge active">still running</span>}</td>
                   <td>{hoursFmt(te.hours)}</td>
@@ -166,11 +167,11 @@ export default function JobCostingPage() {
             <tbody>
               {selectedMaterialTx.length === 0 ? <tr><td colSpan="6" className="muted">No materials logged on this job yet.</td></tr> : selectedMaterialTx.map(mt => (
                 <tr key={mt.id}>
-                  <td><strong>{mt.item_code}</strong> {mt.material_description}</td>
+                  <td><Xref type="material" id={mt.material_id}><strong>{mt.item_code}</strong> {mt.material_description}</Xref></td>
                   <td><span className="badge">{mt.transaction_type}</span></td>
                   <td>{mt.quantity} {mt.unit_of_measure}</td>
                   <td>{money(Number(mt.quantity) * Number(mt.unit_cost || 0))}</td>
-                  <td>{mt.employee_name}</td>
+                  <td><Xref type="employee" id={mt.employee_id}>{mt.employee_name}</Xref></td>
                   <td>{fmtDateTime(mt.occurred_at)}</td>
                 </tr>
               ))}
