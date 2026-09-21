@@ -3,6 +3,39 @@ import '../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+function InstallBanner(){
+  const [dismissed,setDismissed]=useState(true);
+  const [isIOS,setIsIOS]=useState(false);
+  const [deferredPrompt,setDeferredPrompt]=useState(null);
+  useEffect(()=>{
+    try{
+      const standalone=window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
+      const wasDismissed=localStorage.getItem('mc-install-dismissed')==='1';
+      if(!standalone&&!wasDismissed){setDismissed(false);setIsIOS(/iphone|ipad|ipod/i.test(window.navigator.userAgent||''));}
+    }catch{}
+  },[]);
+  useEffect(()=>{
+    function onPrompt(e){e.preventDefault();setDeferredPrompt(e);}
+    window.addEventListener('beforeinstallprompt',onPrompt);
+    return ()=>window.removeEventListener('beforeinstallprompt',onPrompt);
+  },[]);
+  function dismiss(){try{localStorage.setItem('mc-install-dismissed','1');}catch{} setDismissed(true);}
+  async function install(){if(!deferredPrompt)return;deferredPrompt.prompt();try{await deferredPrompt.userChoice;}catch{} setDeferredPrompt(null);dismiss();}
+  if(dismissed)return null;
+  if(!isIOS&&!deferredPrompt)return null;
+  return <div className="card install-banner">
+    <button type="button" className="install-close" onClick={dismiss} aria-label="Dismiss">×</button>
+    {isIOS?<>
+      <strong>Add this to your Home Screen</strong>
+      <p className="muted">In Safari, tap the Share button, then choose "Add to Home Screen." It'll open full-screen from an icon, like any other app.</p>
+    </>:<>
+      <strong>Install this as an app</strong>
+      <p className="muted">Add Mastercraft to your home screen so it opens full-screen, like any other app.</p>
+      <button type="button" className="btn primary compact" onClick={install}>INSTALL APP</button>
+    </>}
+  </div>;
+}
+
 export default function EmployeePage(){
   const router=useRouter(); const [data,setData]=useState(null); const [error,setError]=useState(''); const [busy,setBusy]=useState(''); const [now,setNow]=useState(Date.now());
   const [materialId,setMaterialId]=useState(''); const [qty,setQty]=useState(1); const [transactionType,setTransactionType]=useState('issue');
@@ -17,6 +50,7 @@ export default function EmployeePage(){
   return <main className="shell"><div className="topbar"><div className="brand">MASTERCRAFT</div><button className="toplink" onClick={logout}>Sign out</button></div><div className="container narrow">
     <div className="card identity"><div><div className="kicker">Employee</div><div className="big">{data.employee.full_name}</div><div className="muted">{data.employee.departments?.name||'Unassigned Department'}</div></div><span className="badge active">Online</span></div>
     {error&&<div className="alert error">{error}</div>}
+    <InstallBanner />
     {data.guidance?.length>0&&<div className="card"><div className="kicker">Today’s guidance</div>{data.guidance.map(g=><div className="guidance" key={g.id}><strong>{g.title}</strong>{g.instructions&&<div className="muted">{g.instructions}</div>}{g.daily_goal&&<div className="goal">Daily goal: {g.daily_goal}</div>}</div>)}</div>}
     {active ? <>
       <div className="card current-card"><div className="kicker">Current Job</div><div className="big jobno">{active.jobs?.job_number||'Indirect'}</div><div className="jobtitle">{active.jobs?.description||active.entry_type}</div><div className="muted">{active.operations?.operation_name||'Non-job time'}</div><div className="timer">{elapsed}</div>

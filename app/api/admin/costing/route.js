@@ -7,7 +7,7 @@ export async function GET() {
     const auth = await requireSession(['admin']);
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-    const [jobsR, timeR, materialR] = await Promise.all([
+    const [jobsR, timeR, materialR, jobMaterialsR] = await Promise.all([
       query(`select j.id, j.job_number, j.customer_name, j.description, j.status, j.due_date, j.priority,
                     coalesce((select sum(o.estimated_hours) from operations o where o.job_id=j.id),0) as estimated_hours,
                     (select count(*) from operations o where o.job_id=j.id) as operations_total,
@@ -32,10 +32,15 @@ export async function GET() {
              join materials m on m.id=mt.material_id
              join employees e on e.id=mt.employee_id
              left join jobs j on j.id=mt.job_id
-             order by mt.occurred_at desc`)
+             order by mt.occurred_at desc`),
+      query(`select jm.id, jm.job_id, jm.material_id, jm.planned_quantity, jm.notes,
+                    m.item_code, m.description as material_description, m.unit_of_measure, m.standard_cost
+             from job_materials jm
+             join materials m on m.id=jm.material_id
+             order by m.item_code`)
     ]);
 
-    return NextResponse.json({ jobs: jobsR.rows, timeEntries: timeR.rows, materialTransactions: materialR.rows });
+    return NextResponse.json({ jobs: jobsR.rows, timeEntries: timeR.rows, materialTransactions: materialR.rows, jobMaterials: jobMaterialsR.rows });
   } catch (e) {
     return NextResponse.json({ error: e.message || 'Unable to load job costing data.' }, { status: 500 });
   }
