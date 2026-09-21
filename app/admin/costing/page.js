@@ -116,6 +116,7 @@ export default function JobCostingPage() {
       <a className="brand" href="/admin">MASTERCRAFT ADMIN</a>
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
+        <a className="navlink" href="/admin/payroll">Payroll</a>
         <a className="navlink" href="/supervisor">Supervisor Board</a>
         <button className="toplink" onClick={logout}>Sign out</button>
       </div>

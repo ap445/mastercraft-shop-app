@@ -4,15 +4,13 @@ import { query } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 
 async function requireAdmin() {
-  const auth = await requireSession(['admin']);
-  if (auth.error) return auth;
-  return null;
+  return requireSession(['admin']);
 }
 
 export async function GET() {
   try {
-    const denied = await requireAdmin();
-    if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+    const auth = await requireAdmin();
+    if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const [departments, employees, jobs, materials, guidance, operations, timeEntries, materialTransactions, jobMaterials] = await Promise.all([
       query('select id,name,active from departments order by name'),
       query(`select e.id,e.employee_code,e.full_name,e.department_id,e.role,e.active,d.name as department_name
@@ -27,13 +25,15 @@ export async function GET() {
                               from assignments a join employees e on e.id=a.employee_id where a.operation_id=o.id),'[]'::json) as assigned
              from operations o join jobs j on j.id=o.job_id join departments d on d.id=o.department_id
              order by j.job_number,o.sequence_no`),
-      query(`select te.id, te.job_id, te.operation_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at,
+      query(`select te.id, te.job_id, te.operation_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at, te.notes, te.adjusted_by,
                     e.full_name as employee_name,
+                    adj.full_name as adjusted_by_name,
                     o.operation_name, o.sequence_no,
                     j.job_number,
                     extract(epoch from (coalesce(te.stopped_at, now()) - te.started_at))/3600.0 as hours
              from time_entries te
              join employees e on e.id=te.employee_id
+             left join employees adj on adj.id=te.adjusted_by
              left join operations o on o.id=te.operation_id
              left join jobs j on j.id=te.job_id
              order by te.started_at desc`),
@@ -60,8 +60,8 @@ export async function GET() {
 
 export async function POST(request) {
   try {
-    const denied = await requireAdmin();
-    if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
+    const auth = await requireAdmin();
+    if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const body = await request.json();
     const { type } = body;
     if (type === 'department') {
@@ -138,6 +138,62 @@ export async function POST(request) {
       const { id } = body;
       if (!id) throw new Error('Missing record to remove.');
       await query('delete from job_materials where id=$1', [id]);
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'timeEntry') {
+      const { id, employeeId, jobId, operationId, entryType, startedAt, stoppedAt, notes } = body;
+      if (!employeeId || !entryType || !startedAt) throw new Error('Employee, type, and a start time are required.');
+      if (!['direct', 'indirect', 'break', 'training', 'pto', 'holiday'].includes(entryType)) throw new Error('Choose a valid time type.');
+      if (stoppedAt && new Date(stoppedAt) < new Date(startedAt)) throw new Error('Stop time must be on or after the start time.');
+      try {
+        if (id) await query(
+          `update time_entries set employee_id=$1,job_id=$2,operation_id=$3,entry_type=$4,started_at=$5,stopped_at=$6,notes=$7,adjusted_by=$8 where id=$9`,
+          [employeeId, jobId || null, operationId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId, id]
+        );
+        else await query(
+          `insert into time_entries(employee_id,job_id,operation_id,entry_type,started_at,stopped_at,notes,adjusted_by)
+           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [employeeId, jobId || null, operationId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId]
+        );
+      } catch (e) {
+        if (e.code === '23505') throw new Error('This employee already has an open time entry. Set a stop time here, or close the other entry first.');
+        if (e.code === '23514') throw new Error('Stop time must be on or after the start time.');
+        throw e;
+      }
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'timeEntryDelete') {
+      const { id } = body;
+      if (!id) throw new Error('Missing record to remove.');
+      await query('delete from time_entries where id=$1', [id]);
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'materialTransaction') {
+      const { id, jobId, operationId, materialId, employeeId, transactionType, quantity, unitCost, occurredAt, notes } = body;
+      const qty = Number(quantity);
+      if (!jobId || !materialId || !employeeId || !qty || qty <= 0) throw new Error('Job, material, employee, and a positive quantity are required.');
+      if (!['issue', 'return'].includes(transactionType)) throw new Error('Choose issue or return.');
+      let cost = unitCost === '' || unitCost == null ? null : Number(unitCost);
+      if (cost == null) {
+        const matR = await query('select standard_cost from materials where id=$1', [materialId]);
+        cost = matR.rows[0]?.standard_cost ?? null;
+      }
+      const occurred = occurredAt || new Date().toISOString();
+      if (id) await query(
+        `update material_transactions set job_id=$1,operation_id=$2,material_id=$3,employee_id=$4,transaction_type=$5,quantity=$6,unit_cost=$7,occurred_at=$8,notes=$9 where id=$10`,
+        [jobId, operationId || null, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null, id]
+      );
+      else await query(
+        `insert into material_transactions(job_id,operation_id,material_id,employee_id,transaction_type,quantity,unit_cost,occurred_at,notes)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [jobId, operationId || null, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null]
+      );
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'materialTransactionDelete') {
+      const { id } = body;
+      if (!id) throw new Error('Missing record to remove.');
+      await query('delete from material_transactions where id=$1', [id]);
       return NextResponse.json({ ok: true });
     }
     if (type === 'materialsImport') {
