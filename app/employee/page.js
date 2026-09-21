@@ -50,7 +50,7 @@ export default function EmployeePage(){
   async function logout(){await fetch('/api/auth/logout',{method:'POST'});router.push('/login');router.refresh();}
   if(!data)return <main className="shell"><div className="container narrow"><div className="card">Loading shop data...</div></div></main>;
   const active=data.active;
-  return <main className="shell"><div className="topbar"><div className="brand">MASTERCRAFT</div><button className="toplink" onClick={logout}>Sign out</button></div><div className="container narrow">
+  return <main className="shell"><div className="topbar"><a className="brand" href="/employee">MASTERCRAFT</a><button className="toplink" onClick={logout}>Sign out</button></div><div className="container narrow">
     <div className="card identity"><div><div className="kicker">Employee</div><div className="big">{data.employee.full_name}</div><div className="muted">{data.employee.departments?.name||'Unassigned Department'}</div></div><span className="badge active">Online</span></div>
     {error&&<div className="alert error">{error}</div>}
     <InstallBanner />
