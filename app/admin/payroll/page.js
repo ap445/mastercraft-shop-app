@@ -13,6 +13,22 @@ function toLocalInput(iso) { if (!iso) return ''; const d = new Date(iso); const
 function fromLocalInput(v) { if (!v) return null; return new Date(v).toISOString(); }
 function todayStr() { const d = new Date(); const pad = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 function daysAgoStr(n) { const d = new Date(); d.setDate(d.getDate() - n); const pad = x => String(x).padStart(2, '0'); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
+function cap(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+function localYmd(iso) { if (!iso) return null; const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+function startOfWeek(d) { const x = new Date(d); x.setDate(x.getDate() - x.getDay()); x.setHours(0, 0, 0, 0); return x; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function ymdKey(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }
+const WORK_TYPES = ['direct', 'indirect', 'training', 'break'];
+function dayStatus(employeeId, dateKey, timeEntries) {
+  const entries = timeEntries.filter(t => String(t.employee_id) === String(employeeId) && localYmd(t.started_at) === dateKey);
+  const hours = entries.reduce((s, t) => s + Number(t.hours || 0), 0);
+  const types = new Set(entries.map(t => t.entry_type));
+  let status = 'none';
+  if (WORK_TYPES.some(t => types.has(t))) status = 'worked';
+  else if (types.has('pto')) status = 'pto';
+  else if (types.has('holiday')) status = 'holiday';
+  return { status, hours };
+}
 function csvValue(value) { const text = String(value ?? ''); return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text; }
 function downloadCsv(filename, rows) {
   const blob = new Blob([rows.map(r => r.map(csvValue).join(',')).join('\n')], { type: 'text/csv' });
@@ -37,6 +53,9 @@ export default function PayrollPage() {
   const [mtFilterEmployee, setMtFilterEmployee] = useState('');
   const [payStart, setPayStart] = useState(() => daysAgoStr(6));
   const [payEnd, setPayEnd] = useState(() => todayStr());
+  const [attView, setAttView] = useState('daily');
+  const [attDate, setAttDate] = useState(() => todayStr());
+  const [attWeekAnchor, setAttWeekAnchor] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
 
   const load = useCallback(async () => {
     const res = await fetch('/api/admin/setup', { cache: 'no-store' });
@@ -143,6 +162,25 @@ export default function PayrollPage() {
     return Object.values(byEmployee).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
   }, [data, payStart, payEnd]);
 
+  const activeEmployees = useMemo(() => (data?.employees || []).filter(e => e.active !== false).sort((a, b) => a.full_name.localeCompare(b.full_name)), [data]);
+
+  const dailyAttendance = useMemo(() => {
+    if (!data) return [];
+    const rows = activeEmployees.map(e => ({ employee: e, ...dayStatus(e.id, attDate, data.timeEntries) }));
+    return rows.sort((a, b) => (a.status === 'none' ? 0 : 1) - (b.status === 'none' ? 0 : 1) || a.employee.full_name.localeCompare(b.employee.full_name));
+  }, [data, activeEmployees, attDate]);
+  const missingToday = dailyAttendance.filter(r => r.status === 'none').length;
+
+  const weekDays = useMemo(() => { const ws = startOfWeek(attWeekAnchor); return Array.from({ length: 7 }, (_, i) => addDays(ws, i)); }, [attWeekAnchor]);
+  const weeklyAttendance = useMemo(() => {
+    if (!data) return [];
+    return activeEmployees.map(e => {
+      const days = weekDays.map((d, i) => ({ date: d, i, ...dayStatus(e.id, ymdKey(d), data.timeEntries) }));
+      const missedWeekdays = days.filter(d => d.i >= 1 && d.i <= 5 && d.status === 'none').length;
+      return { employee: e, days, missedWeekdays };
+    });
+  }, [data, activeEmployees, weekDays]);
+
   function exportPayrollCsv() {
     const rows = [
       ['Employee', ...ENTRY_TYPES.map(t => ENTRY_LABEL[t]), 'Total Hours', 'Period Start', 'Period End'],
@@ -158,6 +196,7 @@ export default function PayrollPage() {
       <a className="brand" href="/admin">MASTERCRAFT ADMIN</a>
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
+        <a className="navlink" href="#attendance">Attendance</a>
         <a className="navlink" href="/admin/costing">Job Costing</a>
         <a className="navlink" href="/supervisor">Supervisor Board</a>
         <button className="toplink" onClick={logout}>Sign out</button>
@@ -266,6 +305,53 @@ export default function PayrollPage() {
           </table>
         </div>
         {data.materialTransactions.length > 300 ? <p className="hint">Showing the 300 most recent. Filter by employee to narrow it down.</p> : null}
+      </section>
+
+      <section id="attendance" className="card">
+        <div className="kicker">Attendance</div>
+        <h2>Who clocked in?</h2>
+        <p className="muted">See who logged time on a given day or across a week, and spot anyone who didn't right away.</p>
+        <div className="cal-toolbar-right" style={{ marginBottom: '14px' }}>
+          <button type="button" className={"cal-nav-btn" + (attView === 'daily' ? ' active' : '')} onClick={() => setAttView('daily')}>Daily</button>
+          <button type="button" className={"cal-nav-btn" + (attView === 'weekly' ? ' active' : '')} onClick={() => setAttView('weekly')}>Weekly</button>
+        </div>
+        {attView === 'daily' ? <>
+          <div className="field" style={{ maxWidth: '220px' }}><label>Date</label><input type="date" value={attDate} onChange={e => setAttDate(e.target.value)} /></div>
+          {missingToday > 0 ? <div className="alert error">{missingToday} of {activeEmployees.length} employees did not clock in on {attDate}.</div> : <div className="alert success">Everyone clocked in on {attDate}.</div>}
+          <div className="table-wrap"><table className="table compact-table">
+            <thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>Hours</th></tr></thead>
+            <tbody>
+              {dailyAttendance.length === 0 ? <tr><td colSpan="4" className="muted">No active employees.</td></tr> : dailyAttendance.map(r => (
+                <tr key={r.employee.id}>
+                  <td>{r.employee.full_name}</td>
+                  <td>{r.employee.department_name || '—'}</td>
+                  <td>{r.status === 'none' ? <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>No clock-in</span> : r.status === 'worked' ? <span className="badge active">Worked</span> : <span className="badge">{cap(r.status)}</span>}</td>
+                  <td>{r.hours ? hoursFmt(r.hours) : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+        </> : <>
+          <div className="cal-toolbar-left" style={{ marginBottom: '10px' }}>
+            <button type="button" className="cal-nav-btn" onClick={() => setAttWeekAnchor(a => addDays(a, -7))}>‹</button>
+            <button type="button" className="cal-nav-btn" onClick={() => { const d = new Date(); d.setHours(0, 0, 0, 0); setAttWeekAnchor(d); }}>This week</button>
+            <button type="button" className="cal-nav-btn" onClick={() => setAttWeekAnchor(a => addDays(a, 7))}>›</button>
+            <strong className="cal-label" style={{ marginLeft: '8px' }}>{weekDays[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – {weekDays[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</strong>
+          </div>
+          <div className="table-wrap"><table className="table compact-table">
+            <thead><tr><th>Employee</th>{weekDays.map(d => <th key={ymdKey(d)}>{d.toLocaleDateString(undefined, { weekday: 'short' })}<br />{d.getMonth() + 1}/{d.getDate()}</th>)}<th>Missed weekdays</th></tr></thead>
+            <tbody>
+              {weeklyAttendance.length === 0 ? <tr><td colSpan="9" className="muted">No active employees.</td></tr> : weeklyAttendance.map(r => (
+                <tr key={r.employee.id}>
+                  <td>{r.employee.full_name}</td>
+                  {r.days.map(d => <td key={ymdKey(d.date)} style={d.status === 'none' && d.i >= 1 && d.i <= 5 ? { background: '#fee2e2' } : undefined}>{d.status === 'none' ? '—' : d.status === 'worked' ? hoursFmt(d.hours) : cap(d.status)}</td>)}
+                  <td>{r.missedWeekdays > 0 ? <strong style={{ color: '#991b1b' }}>{r.missedWeekdays}</strong> : '0'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table></div>
+          <p className="hint">Weekend cells aren't flagged as missed — only Monday through Friday.</p>
+        </>}
       </section>
 
       <section id="payroll-report" className="card">

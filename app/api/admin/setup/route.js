@@ -262,6 +262,12 @@ export async function POST(request) {
       }
       return NextResponse.json({ ok: true, id: resultId });
     }
+    if (type === 'guidanceDelete') {
+      const { id } = body;
+      if (!id) throw new Error('Missing expectation to remove.');
+      await query('delete from daily_guidance where id=$1', [id]);
+      return NextResponse.json({ ok: true });
+    }
     if (type === 'guidanceAttachmentDelete') {
       const { id } = body;
       if (!id) throw new Error('Missing attachment to remove.');
