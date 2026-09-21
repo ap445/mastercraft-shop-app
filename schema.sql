@@ -97,9 +97,38 @@ create table if not exists daily_guidance (
 create unique index if not exists daily_guidance_role_unique on daily_guidance(role) where scope_type='role';
 create unique index if not exists daily_guidance_department_unique on daily_guidance(department_id) where scope_type='department';
 
+-- widen daily_guidance to support a 'job' scope (one note per job+department combo)
+alter table daily_guidance drop constraint if exists daily_guidance_scope_type_check;
+alter table daily_guidance add constraint daily_guidance_scope_type_check check (scope_type in ('role','department','job'));
+alter table daily_guidance add column if not exists job_id bigint references jobs(id) on delete cascade;
+do $$
+declare rec record;
+begin
+  for rec in select conname from pg_constraint where conrelid='daily_guidance'::regclass and contype='c' and conname <> 'daily_guidance_scope_type_check' loop
+    execute format('alter table daily_guidance drop constraint %I', rec.conname);
+  end loop;
+end $$;
+alter table daily_guidance add constraint daily_guidance_scope_check check (
+  (scope_type='role' and role is not null and department_id is null and job_id is null) or
+  (scope_type='department' and department_id is not null and role is null and job_id is null) or
+  (scope_type='job' and job_id is not null and department_id is not null and role is null)
+);
+create unique index if not exists daily_guidance_job_department_unique on daily_guidance(job_id, department_id) where scope_type='job';
+
+create table if not exists guidance_attachments (
+  id bigserial primary key,
+  guidance_id bigint not null references daily_guidance(id) on delete cascade,
+  filename text not null,
+  content_type text not null,
+  file_size bigint not null,
+  file_data bytea not null,
+  uploaded_at timestamptz not null default now()
+);
+create index if not exists guidance_attachments_guidance_idx on guidance_attachments(guidance_id);
+
 create table if not exists material_transactions (
   id bigserial primary key,
-  job_id bigint not null references jobs(id),
+  job_id bigint references jobs(id),
   operation_id bigint references operations(id),
   material_id bigint not null references materials(id),
   employee_id bigint not null references employees(id),
@@ -109,6 +138,7 @@ create table if not exists material_transactions (
   occurred_at timestamptz not null default now(),
   notes text
 );
+alter table material_transactions alter column job_id drop not null;
 
 create index if not exists material_transactions_job_idx on material_transactions(job_id, occurred_at);
 

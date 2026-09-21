@@ -33,9 +33,20 @@ export async function GET() {
              where a.employee_id=$1 and o.status <> 'complete'
              order by a.assigned_at asc`, [employeeId]),
       query(`select id,item_code,description,unit_of_measure,standard_cost from materials where active=true order by description`),
-      query(`select g.id,g.scope_type,g.title,g.instructions,g.daily_goal,d.name as department_name
-             from daily_guidance g left join employees e on e.id=$1 left join departments d on d.id=g.department_id
-             where g.active=true and ((g.scope_type='role' and g.role=e.role) or (g.scope_type='department' and g.department_id=e.department_id))
+      query(`select g.id,g.scope_type,g.title,g.instructions,g.daily_goal,d.name as department_name,j.job_number,
+                    coalesce((select json_agg(json_build_object('id',ga.id,'filename',ga.filename,'file_size',ga.file_size) order by ga.uploaded_at)
+                              from guidance_attachments ga where ga.guidance_id=g.id),'[]'::json) as attachments
+             from daily_guidance g
+             left join employees e on e.id=$1
+             left join departments d on d.id=g.department_id
+             left join jobs j on j.id=g.job_id
+             where g.active=true and (
+               (g.scope_type='role' and g.role=e.role) or
+               (g.scope_type='department' and g.department_id=e.department_id) or
+               (g.scope_type='job' and g.department_id=e.department_id and exists(
+                 select 1 from operations o where o.job_id=g.job_id and o.department_id=g.department_id and o.status<>'complete'
+               ))
+             )
              order by g.scope_type`, [employeeId])
     ]);
 

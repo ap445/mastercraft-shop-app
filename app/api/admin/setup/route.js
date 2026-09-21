@@ -17,8 +17,11 @@ export async function GET() {
              from employees e left join departments d on d.id=e.department_id order by e.full_name`),
       query('select id,job_number,customer_name,description,due_date,priority,status from jobs order by created_at desc'),
       query('select id,item_code,description,unit_of_measure,standard_cost,active from materials order by item_code'),
-      query(`select g.id,g.scope_type,g.role,g.department_id,g.title,g.instructions,g.daily_goal,d.name as department_name
-             from daily_guidance g left join departments d on d.id=g.department_id where g.active=true order by g.scope_type,g.title`),
+      query(`select g.id,g.scope_type,g.role,g.department_id,g.job_id,g.title,g.instructions,g.daily_goal,d.name as department_name,j.job_number,
+                    coalesce((select json_agg(json_build_object('id',ga.id,'filename',ga.filename,'content_type',ga.content_type,'file_size',ga.file_size,'uploaded_at',ga.uploaded_at) order by ga.uploaded_at)
+                              from guidance_attachments ga where ga.guidance_id=g.id),'[]'::json) as attachments
+             from daily_guidance g left join departments d on d.id=g.department_id left join jobs j on j.id=g.job_id
+             where g.active=true order by g.scope_type,g.title`),
       query(`select o.id,o.job_id,o.department_id,o.operation_name,o.sequence_no,o.estimated_hours,o.planned_start,o.planned_finish,o.status,
                     j.job_number,j.description as job_description,d.name as department_name,
                     coalesce((select json_agg(json_build_object('employee_id',e.id,'full_name',e.full_name) order by e.full_name)
@@ -221,19 +224,48 @@ export async function POST(request) {
       return NextResponse.json({ imported, skipped });
     }
     if (type === 'guidance') {
-      const { id, scopeType, role, departmentId, title, instructions, dailyGoal } = body;
-      if (!['role','department'].includes(scopeType) || !title?.trim()) throw new Error('Choose a scope and provide a title.');
+      const { id, scopeType, role, departmentId, jobId, title, instructions, dailyGoal } = body;
+      if (!['role','department','job'].includes(scopeType) || !title?.trim()) throw new Error('Choose a scope and provide a title.');
       if (scopeType === 'role' && !['employee','supervisor','admin'].includes(role)) throw new Error('Choose a valid role.');
       if (scopeType === 'department' && !departmentId) throw new Error('Choose a department.');
-      if (id) await query(`update daily_guidance set scope_type=$1,role=$2,department_id=$3,title=$4,instructions=$5,daily_goal=$6,active=true where id=$7`,[scopeType,scopeType==='role'?role:null,scopeType==='department'?departmentId:null,title.trim(),instructions?.trim()||null,dailyGoal?.trim()||null,id]);
-      else if (scopeType === 'role') await query(`insert into daily_guidance(scope_type,role,department_id,title,instructions,daily_goal)
-                   values ('role',$1,null,$2,$3,$4)
-                   on conflict (role) where scope_type='role' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true`,
-        [role, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
-      else await query(`insert into daily_guidance(scope_type,role,department_id,title,instructions,daily_goal)
-                   values ('department',null,$1,$2,$3,$4)
-                   on conflict (department_id) where scope_type='department' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true`,
-        [departmentId, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
+      if (scopeType === 'job' && (!jobId || !departmentId)) throw new Error('Choose a job and a department.');
+      let resultId = id;
+      try {
+        if (id) {
+          await query(`update daily_guidance set scope_type=$1,role=$2,department_id=$3,job_id=$4,title=$5,instructions=$6,daily_goal=$7,active=true where id=$8`,
+            [scopeType, scopeType==='role'?role:null, scopeType==='role'?null:departmentId, scopeType==='job'?jobId:null, title.trim(), instructions?.trim()||null, dailyGoal?.trim()||null, id]);
+        } else if (scopeType === 'role') {
+          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal)
+                       values ('role',$1,null,null,$2,$3,$4)
+                       on conflict (role) where scope_type='role' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
+                       returning id`,
+            [role, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
+          resultId = r.rows[0]?.id;
+        } else if (scopeType === 'department') {
+          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal)
+                       values ('department',null,$1,null,$2,$3,$4)
+                       on conflict (department_id) where scope_type='department' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
+                       returning id`,
+            [departmentId, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
+          resultId = r.rows[0]?.id;
+        } else {
+          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal)
+                       values ('job',null,$1,$2,$3,$4,$5)
+                       on conflict (job_id,department_id) where scope_type='job' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
+                       returning id`,
+            [departmentId, jobId, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
+          resultId = r.rows[0]?.id;
+        }
+      } catch (e) {
+        if (e.code === '23505') throw new Error('An expectation for this scope already exists — edit that one instead.');
+        throw e;
+      }
+      return NextResponse.json({ ok: true, id: resultId });
+    }
+    if (type === 'guidanceAttachmentDelete') {
+      const { id } = body;
+      if (!id) throw new Error('Missing attachment to remove.');
+      await query('delete from guidance_attachments where id=$1', [id]);
       return NextResponse.json({ ok: true });
     }
     throw new Error('Unknown setup item.');
