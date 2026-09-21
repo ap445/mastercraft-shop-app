@@ -111,3 +111,15 @@ create table if not exists material_transactions (
 );
 
 create index if not exists material_transactions_job_idx on material_transactions(job_id, occurred_at);
+
+create table if not exists job_materials (
+  id bigserial primary key,
+  job_id bigint not null references jobs(id) on delete cascade,
+  material_id bigint not null references materials(id),
+  planned_quantity numeric(12,4) not null check (planned_quantity > 0),
+  notes text,
+  created_at timestamptz not null default now(),
+  unique(job_id, material_id)
+);
+
+create index if not exists job_materials_job_idx on job_materials(job_id);

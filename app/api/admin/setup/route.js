@@ -13,7 +13,7 @@ export async function GET() {
   try {
     const denied = await requireAdmin();
     if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
-    const [departments, employees, jobs, materials, guidance, operations, timeEntries, materialTransactions] = await Promise.all([
+    const [departments, employees, jobs, materials, guidance, operations, timeEntries, materialTransactions, jobMaterials] = await Promise.all([
       query('select id,name,active from departments order by name'),
       query(`select e.id,e.employee_code,e.full_name,e.department_id,e.role,e.active,d.name as department_name
              from employees e left join departments d on d.id=e.department_id order by e.full_name`),
@@ -45,9 +45,16 @@ export async function GET() {
              join materials m on m.id=mt.material_id
              join employees e on e.id=mt.employee_id
              left join jobs j on j.id=mt.job_id
-             order by mt.occurred_at desc`)
+             order by mt.occurred_at desc`),
+      query(`select jm.id, jm.job_id, jm.material_id, jm.planned_quantity, jm.notes,
+                    j.job_number,
+                    m.item_code, m.description as material_description, m.unit_of_measure, m.standard_cost
+             from job_materials jm
+             join jobs j on j.id=jm.job_id
+             join materials m on m.id=jm.material_id
+             order by j.job_number, m.item_code`)
     ]);
-    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows, timeEntries: timeEntries.rows, materialTransactions: materialTransactions.rows });
+    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows, timeEntries: timeEntries.rows, materialTransactions: materialTransactions.rows, jobMaterials: jobMaterials.rows });
   } catch (e) { return NextResponse.json({ error: e.message || 'Unable to load setup data.' }, { status: 500 }); }
 }
 
@@ -114,6 +121,23 @@ export async function POST(request) {
         if (e.code === '23505') throw new Error(`This job already has an operation with sequence #${seq}. Choose a different sequence number.`);
         throw e;
       }
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'jobMaterial') {
+      const { jobId, materialId, plannedQuantity, notes } = body;
+      const qty = Number(plannedQuantity);
+      if (!jobId || !materialId || !qty || qty <= 0) throw new Error('Job, material, and a positive planned quantity are required.');
+      await query(
+        `insert into job_materials(job_id,material_id,planned_quantity,notes) values ($1,$2,$3,$4)
+         on conflict (job_id,material_id) do update set planned_quantity=excluded.planned_quantity,notes=excluded.notes`,
+        [jobId, materialId, qty, notes?.trim() || null]
+      );
+      return NextResponse.json({ ok: true });
+    }
+    if (type === 'jobMaterialDelete') {
+      const { id } = body;
+      if (!id) throw new Error('Missing record to remove.');
+      await query('delete from job_materials where id=$1', [id]);
       return NextResponse.json({ ok: true });
     }
     if (type === 'materialsImport') {
