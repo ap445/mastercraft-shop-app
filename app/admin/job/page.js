@@ -6,8 +6,18 @@ import { useRouter } from 'next/navigation';
 const blankJob = { id:'', jobNumber:'', customerName:'', description:'', dueDate:'', priority:'3', status:'not_started' };
 const blankOperation = { id:'', jobId:'', departmentId:'', operationName:'', sequenceNo:'1', estimatedHours:'', plannedStart:'', plannedFinish:'', status:'queued' };
 const blankJobMaterial = { id:'', jobId:'', materialId:'', plannedQuantity:'', notes:'' };
-const blankGuidance = { id:'', scopeType:'job', jobId:'', departmentId:'', title:'', instructions:'', dailyGoal:'' };
+const blankGuidance = { id:'', scopeType:'job', jobId:'', departmentId:'', guidanceDate:'', title:'', instructions:'', dailyGoal:'' };
 function nextSequenceFor(jobId,ops){const nums=(ops||[]).filter(o=>String(o.job_id)===String(jobId)).map(o=>Number(o.sequence_no)||0);return nums.length?Math.max(...nums)+1:1;}
+function datesInRange(start,end){
+  if(!start)return [];
+  const s=new Date(String(start).slice(0,10)+'T00:00:00');
+  const e=end?new Date(String(end).slice(0,10)+'T00:00:00'):s;
+  if(isNaN(s)||isNaN(e)||e<s)return [String(start).slice(0,10)];
+  const out=[];
+  for(let d=new Date(s);d<=e;d.setDate(d.getDate()+1))out.push(d.toISOString().slice(0,10));
+  return out;
+}
+function fmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});}
 
 export default function JobSetupPage(){
   const router=useRouter();
@@ -39,7 +49,7 @@ export default function JobSetupPage(){
   function editJob(job){setJobForm({id:job.id,jobNumber:job.job_number,customerName:job.customer_name||'',description:job.description||'',dueDate:job.due_date?String(job.due_date).slice(0,10):'',priority:String(job.priority||3),status:job.status||'not_started'});}
   function editOperation(o){setOperationForm({id:o.id,jobId:String(o.job_id),departmentId:String(o.department_id),operationName:o.operation_name,sequenceNo:String(o.sequence_no),estimatedHours:o.estimated_hours??'',plannedStart:o.planned_start?String(o.planned_start).slice(0,10):'',plannedFinish:o.planned_finish?String(o.planned_finish).slice(0,10):'',status:o.status||'queued'});}
   function editJobMaterial(jm){setJobMaterialForm({id:jm.id,jobId:String(jm.job_id),materialId:String(jm.material_id),plannedQuantity:String(jm.planned_quantity),notes:jm.notes||''});}
-  function editGuidance(g){setGuidanceForm({id:g.id,scopeType:'job',jobId:String(g.job_id),departmentId:g.department_id||'',title:g.title,instructions:g.instructions||'',dailyGoal:g.daily_goal||''});}
+  function editGuidance(g){setGuidanceForm({id:g.id,scopeType:'job',jobId:String(g.job_id),departmentId:g.department_id||'',guidanceDate:g.guidance_date?String(g.guidance_date).slice(0,10):'',title:g.title,instructions:g.instructions||'',dailyGoal:g.daily_goal||''});}
 
   function changeOperationDept(deptId){setOperationForm(f=>{const dept=data.departments.find(d=>String(d.id)===String(deptId));const nameWasAuto=!f.operationName||data.departments.some(d=>d.name===f.operationName);return{...f,departmentId:deptId,operationName:(nameWasAuto&&dept)?dept.name:f.operationName};});}
 
@@ -94,7 +104,7 @@ export default function JobSetupPage(){
       const fresh=await load();
       const savedId=json.id||guidanceForm.id;
       const saved=fresh.guidance.find(g=>String(g.id)===String(savedId));
-      setGuidanceForm(saved?{id:saved.id,scopeType:'job',jobId:saved.job_id,departmentId:saved.department_id||'',title:saved.title,instructions:saved.instructions||'',dailyGoal:saved.daily_goal||''}:{...blankGuidance,jobId});
+      setGuidanceForm(saved?{id:saved.id,scopeType:'job',jobId:saved.job_id,departmentId:saved.department_id||'',guidanceDate:saved.guidance_date?String(saved.guidance_date).slice(0,10):'',title:saved.title,instructions:saved.instructions||'',dailyGoal:saved.daily_goal||''}:{...blankGuidance,jobId});
       setNotice('Expectation saved — attach documents below if needed, or add another.');
     }catch(err){setError(err.message)}finally{setBusy(false)}
   }
@@ -119,8 +129,14 @@ export default function JobSetupPage(){
   const job=useMemo(()=>data?.jobs.find(j=>String(j.id)===String(jobId))||null,[data,jobId]);
   const ops=useMemo(()=>job?(data.operations.filter(o=>String(o.job_id)===String(jobId)).sort((a,b)=>a.sequence_no-b.sequence_no)):[],[data,job,jobId]);
   const materialsForJob=useMemo(()=>job?data.jobMaterials.filter(jm=>String(jm.job_id)===String(jobId)):[],[data,job,jobId]);
-  const guidanceForJob=useMemo(()=>job?data.guidance.filter(g=>g.scope_type==='job'&&String(g.job_id)===String(jobId)):[],[data,job,jobId]);
+  const guidanceForJob=useMemo(()=>job?data.guidance.filter(g=>g.scope_type==='job'&&String(g.job_id)===String(jobId)).sort((a,b)=>(a.department_name||'').localeCompare(b.department_name||'')||(a.guidance_date||'').localeCompare(b.guidance_date||'')):[],[data,job,jobId]);
   const currentGuidanceAttachments=useMemo(()=>{if(!data||!guidanceForm.id)return[];const g=data.guidance.find(x=>String(x.id)===String(guidanceForm.id));return g?.attachments||[];},[data,guidanceForm.id]);
+  const scheduledDatesForDept=useMemo(()=>{
+    if(!guidanceForm.departmentId)return [];
+    const set=new Set();
+    ops.filter(o=>String(o.department_id)===String(guidanceForm.departmentId)&&o.planned_start).forEach(o=>datesInRange(o.planned_start,o.planned_finish).forEach(d=>set.add(d)));
+    return Array.from(set).sort();
+  },[ops,guidanceForm.departmentId]);
 
   if(!data)return <main className="shell"><div className="container"><div className="card">{error?<div className="alert error">{error}</div>:'Loading job setup...'}</div></div></main>;
 
@@ -195,17 +211,28 @@ export default function JobSetupPage(){
 
         <section className="card">
           <div className="kicker">Daily expectations — {job.job_number}</div>
-          <p className="muted">Shown to a department's employees for as long as this job has a non-complete operation in that department.</p>
-          <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Department</th><th>Title</th><th>Goal</th><th></th></tr></thead><tbody>
-            {guidanceForJob.length===0?<tr><td colSpan="4" className="muted">No expectations set for this job yet.</td></tr>:guidanceForJob.map(g=><tr key={g.id}><td>{g.department_name}</td><td><strong>{g.title}</strong><br/><span className="muted">{g.instructions||'—'}</span>{g.attachments?.length>0?<div className="muted">{g.attachments.length} attachment{g.attachments.length===1?'':'s'}</div>:null}</td><td>{g.daily_goal||'—'}</td><td><button type="button" className="xref" onClick={()=>editGuidance(g)}>Edit</button></td></tr>)}
+          <p className="muted">Shown to a department's employees for as long as this job has a non-complete operation in that department. Set a date to give that day its own goal — leave it blank for a goal that applies every day.</p>
+          <div className="table-wrap"><table className="table compact-table"><thead><tr><th>Department</th><th>Date</th><th>Title</th><th>Goal</th><th></th></tr></thead><tbody>
+            {guidanceForJob.length===0?<tr><td colSpan="5" className="muted">No expectations set for this job yet.</td></tr>:guidanceForJob.map(g=><tr key={g.id}><td>{g.department_name}</td><td>{g.guidance_date?fmtDay(String(g.guidance_date).slice(0,10)):'Every day'}</td><td><strong>{g.title}</strong><br/><span className="muted">{g.instructions||'—'}</span>{g.attachments?.length>0?<div className="muted">{g.attachments.length} attachment{g.attachments.length===1?'':'s'}</div>:null}</td><td>{g.daily_goal||'—'}</td><td><button type="button" className="xref" onClick={()=>editGuidance(g)}>Edit</button></td></tr>)}
           </tbody></table></div>
           <form onSubmit={saveGuidance}>
-            <div className="field"><label>Department</label><select value={guidanceForm.departmentId} onChange={e=>setGuidanceForm(f=>({...f,departmentId:e.target.value}))}><option value="">Select department</option>{data.departments.filter(d=>d.active).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+            <div className="grid two">
+              <div className="field"><label>Department</label><select value={guidanceForm.departmentId} onChange={e=>setGuidanceForm(f=>({...f,departmentId:e.target.value,guidanceDate:''}))}><option value="">Select department</option>{data.departments.filter(d=>d.active).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div>
+              <div className="field"><label>Date</label>
+                {scheduledDatesForDept.length>0?
+                  <select value={guidanceForm.guidanceDate} onChange={e=>setGuidanceForm(f=>({...f,guidanceDate:e.target.value}))}>
+                    <option value="">Every day (no specific date)</option>
+                    {scheduledDatesForDept.map(d=><option key={d} value={d}>{fmtDay(d)}</option>)}
+                  </select>
+                  :<input type="date" value={guidanceForm.guidanceDate} onChange={e=>setGuidanceForm(f=>({...f,guidanceDate:e.target.value}))} />}
+              </div>
+            </div>
+            {scheduledDatesForDept.length>0?<p className="hint">Dates come from this department's scheduled steps for this job. Add one expectation per day, or leave it on &quot;Every day&quot; for a goal that applies the whole time.</p>:null}
             <div className="field"><label>Title</label><input value={guidanceForm.title} onChange={e=>setGuidanceForm(f=>({...f,title:e.target.value}))} placeholder="Fabrication daily standard" /></div>
             <div className="field"><label>Instructions</label><input value={guidanceForm.instructions} onChange={e=>setGuidanceForm(f=>({...f,instructions:e.target.value}))} placeholder="Review work order before starting." /></div>
             <div className="field"><label>Daily goal</label><input value={guidanceForm.dailyGoal} onChange={e=>setGuidanceForm(f=>({...f,dailyGoal:e.target.value}))} placeholder="Complete assigned operations safely and accurately." /></div>
             <button disabled={busy} className="btn secondary">{guidanceForm.id?'SAVE EXPECTATION':'ADD EXPECTATION'}</button>
-            {guidanceForm.id?<button type="button" className="btn secondary" onClick={()=>setGuidanceForm({...blankGuidance,jobId})}>DONE / NEW</button>:null}
+            {guidanceForm.id?<button type="button" className="btn secondary" onClick={()=>setGuidanceForm(f=>({...blankGuidance,jobId,departmentId:f.departmentId}))}>DONE / NEW</button>:null}
             {guidanceForm.id?<button type="button" className="btn danger" onClick={()=>removeGuidance(guidanceForm.id)}>DELETE</button>:null}
           </form>
           {guidanceForm.id?<div style={{marginTop:'10px',borderTop:'1px solid #e5e5e5',paddingTop:'10px'}}>

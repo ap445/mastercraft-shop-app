@@ -37,11 +37,11 @@ export async function GET() {
              from operations o join jobs j on j.id=o.job_id join departments d on d.id=o.department_id
              order by j.job_number,o.sequence_no`),
       query('select id,item_code,description,unit_of_measure,active from materials order by item_code'),
-      query(`select g.id,g.scope_type,g.role,g.department_id,g.job_id,g.title,g.instructions,g.daily_goal,d.name as department_name,j.job_number,
+      query(`select g.id,g.scope_type,g.role,g.department_id,g.job_id,g.guidance_date,g.title,g.instructions,g.daily_goal,d.name as department_name,j.job_number,
                     coalesce((select json_agg(json_build_object('id',ga.id,'filename',ga.filename,'file_size',ga.file_size) order by ga.uploaded_at)
                               from guidance_attachments ga where ga.guidance_id=g.id),'[]'::json) as attachments
              from daily_guidance g left join departments d on d.id=g.department_id left join jobs j on j.id=g.job_id
-             where g.active=true order by g.scope_type,g.title`),
+             where g.active=true order by g.scope_type,coalesce(j.job_number,''),coalesce(d.name,''),g.guidance_date nulls first,g.title`),
       query(`select te.id, te.job_id, te.operation_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at, te.notes,
                     e.full_name as employee_name, o.operation_name, o.sequence_no, j.job_number,
                     extract(epoch from (coalesce(te.stopped_at, now()) - te.started_at))/3600.0 as hours

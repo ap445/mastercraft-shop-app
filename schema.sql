@@ -115,6 +115,14 @@ alter table daily_guidance add constraint daily_guidance_scope_check check (
 );
 create unique index if not exists daily_guidance_job_department_unique on daily_guidance(job_id, department_id) where scope_type='job';
 
+-- allow a job-scoped expectation to be tied to one specific calendar day, so a
+-- department scheduled for several days on a job can get a different daily goal
+-- for each day, instead of one note covering the whole span
+alter table daily_guidance add column if not exists guidance_date date;
+drop index if exists daily_guidance_job_department_unique;
+create unique index if not exists daily_guidance_job_department_nodate_unique on daily_guidance(job_id, department_id) where scope_type='job' and guidance_date is null;
+create unique index if not exists daily_guidance_job_department_date_unique on daily_guidance(job_id, department_id, guidance_date) where scope_type='job' and guidance_date is not null;
+
 create table if not exists guidance_attachments (
   id bigserial primary key,
   guidance_id bigint not null references daily_guidance(id) on delete cascade,
