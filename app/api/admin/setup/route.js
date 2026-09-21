@@ -13,7 +13,7 @@ export async function GET() {
   try {
     const denied = await requireAdmin();
     if (denied) return NextResponse.json({ error: denied.error }, { status: denied.status });
-    const [departments, employees, jobs, materials, guidance, operations] = await Promise.all([
+    const [departments, employees, jobs, materials, guidance, operations, timeEntries, materialTransactions] = await Promise.all([
       query('select id,name,active from departments order by name'),
       query(`select e.id,e.employee_code,e.full_name,e.department_id,e.role,e.active,d.name as department_name
              from employees e left join departments d on d.id=e.department_id order by e.full_name`),
@@ -22,11 +22,32 @@ export async function GET() {
       query(`select g.id,g.scope_type,g.role,g.department_id,g.title,g.instructions,g.daily_goal,d.name as department_name
              from daily_guidance g left join departments d on d.id=g.department_id where g.active=true order by g.scope_type,g.title`),
       query(`select o.id,o.job_id,o.department_id,o.operation_name,o.sequence_no,o.estimated_hours,o.planned_start,o.planned_finish,o.status,
-                    j.job_number,j.description as job_description,d.name as department_name
+                    j.job_number,j.description as job_description,d.name as department_name,
+                    coalesce((select json_agg(json_build_object('employee_id',e.id,'full_name',e.full_name) order by e.full_name)
+                              from assignments a join employees e on e.id=a.employee_id where a.operation_id=o.id),'[]'::json) as assigned
              from operations o join jobs j on j.id=o.job_id join departments d on d.id=o.department_id
-             order by j.job_number,o.sequence_no`)
+             order by j.job_number,o.sequence_no`),
+      query(`select te.id, te.job_id, te.operation_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at,
+                    e.full_name as employee_name,
+                    o.operation_name, o.sequence_no,
+                    j.job_number,
+                    extract(epoch from (coalesce(te.stopped_at, now()) - te.started_at))/3600.0 as hours
+             from time_entries te
+             join employees e on e.id=te.employee_id
+             left join operations o on o.id=te.operation_id
+             left join jobs j on j.id=te.job_id
+             order by te.started_at desc`),
+      query(`select mt.id, mt.job_id, mt.operation_id, mt.material_id, mt.employee_id, mt.transaction_type, mt.quantity, mt.unit_cost, mt.occurred_at, mt.notes,
+                    m.item_code, m.description as material_description, m.unit_of_measure,
+                    e.full_name as employee_name,
+                    j.job_number
+             from material_transactions mt
+             join materials m on m.id=mt.material_id
+             join employees e on e.id=mt.employee_id
+             left join jobs j on j.id=mt.job_id
+             order by mt.occurred_at desc`)
     ]);
-    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows });
+    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows, timeEntries: timeEntries.rows, materialTransactions: materialTransactions.rows });
   } catch (e) { return NextResponse.json({ error: e.message || 'Unable to load setup data.' }, { status: 500 }); }
 }
 
