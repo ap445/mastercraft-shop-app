@@ -3,6 +3,7 @@ import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BrandMark from '../../components/BrandMark';
+import RoleNav from '../../components/RoleNav';
 
 const blankJob = { id:'', jobNumber:'', customerName:'', description:'', dueDate:'', priority:'3', status:'not_started' };
 const blankOperation = { id:'', jobId:'', departmentId:'', operationName:'', sequenceNo:'1', estimatedHours:'', plannedStart:'', plannedFinish:'', status:'queued' };
@@ -19,6 +20,14 @@ function datesInRange(start,end){
   return out;
 }
 function fmtDay(d){return new Date(d+'T00:00:00').toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});}
+function fmtShortDate(d){return new Date(d+'T00:00:00').toLocaleDateString(undefined,{month:'short',day:'numeric'});}
+function fmtPlanned(o){
+  if(!o.planned_start)return '—';
+  const start=String(o.planned_start).slice(0,10);
+  const end=o.planned_finish?String(o.planned_finish).slice(0,10):'';
+  if(!end||end===start)return fmtShortDate(start);
+  return `${fmtShortDate(start)} – ${fmtShortDate(end)}`;
+}
 
 export default function JobSetupPage(){
   const router=useRouter();
@@ -147,9 +156,9 @@ export default function JobSetupPage(){
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="/admin#records">Records</a>
-        <a className="navlink" href="/supervisor">Supervisor Board</a>
         <a className="navlink" href="/admin/costing">Job Costing</a>
         <a className="navlink" href="/admin/payroll">Payroll</a>
+        <RoleNav current="admin" />
         <button className="toplink" onClick={logout}>Sign out</button>
       </div>
     </div>
@@ -184,7 +193,7 @@ export default function JobSetupPage(){
           <div className="kicker">Scheduling — {job.job_number}</div>
           <p className="muted">Add each department step this job needs to move through, in sequence order. Once an operation exists here, supervisors can assign an employee to it from the Supervisor board.</p>
           <div className="table-wrap"><table className="table compact-table"><thead><tr><th>#</th><th>Operation</th><th>Dept</th><th>Est.</th><th>Planned</th><th>Status</th><th></th></tr></thead><tbody>
-            {ops.length===0?<tr><td colSpan="7" className="muted">No operations scheduled yet — add the first one below.</td></tr>:ops.map(o=><tr key={o.id}><td>{o.sequence_no}</td><td>{o.operation_name}</td><td>{o.department_name}</td><td>{o.estimated_hours||'—'}</td><td>{o.planned_start?String(o.planned_start).slice(0,10):'—'}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td><td><button type="button" className="xref" onClick={()=>editOperation(o)}>Edit</button></td></tr>)}
+            {ops.length===0?<tr><td colSpan="7" className="muted">No operations scheduled yet — add the first one below.</td></tr>:ops.map(o=><tr key={o.id}><td>{o.sequence_no}</td><td>{o.operation_name}</td><td>{o.department_name}</td><td>{o.estimated_hours||'—'}</td><td>{fmtPlanned(o)}</td><td><span className="badge">{String(o.status).replaceAll('_',' ')}</span></td><td><button type="button" className="xref" onClick={()=>editOperation(o)}>Edit</button></td></tr>)}
           </tbody></table></div>
           <form onSubmit={saveOperation}>
             <div className="grid two"><div className="field"><label>Department</label><select value={operationForm.departmentId} onChange={e=>changeOperationDept(e.target.value)}><option value="">Select department</option>{data.departments.filter(d=>d.active).map(d=><option key={d.id} value={d.id}>{d.name}</option>)}</select></div><div className="field"><label>Operation name</label><input value={operationForm.operationName} onChange={e=>setOperationForm(f=>({...f,operationName:e.target.value}))} placeholder="Cut & Fit" /></div></div>

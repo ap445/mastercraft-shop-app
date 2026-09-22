@@ -3,6 +3,7 @@ import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BrandMark from '../../components/BrandMark';
+import RoleNav from '../../components/RoleNav';
 
 function hoursFmt(h) { return (Math.round((h || 0) * 100) / 100).toFixed(2); }
 function money(n) { return '$' + (Math.round((n || 0) * 100) / 100).toFixed(2); }
@@ -118,7 +119,7 @@ export default function JobCostingPage() {
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="/admin/payroll">Payroll</a>
-        <a className="navlink" href="/supervisor">Supervisor Board</a>
+        <RoleNav current="admin" />
         <button className="toplink" onClick={logout}>Sign out</button>
       </div>
     </div>

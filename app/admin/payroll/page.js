@@ -3,6 +3,7 @@ import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import BrandMark from '../../components/BrandMark';
+import RoleNav from '../../components/RoleNav';
 
 const ENTRY_TYPES = ['direct', 'indirect', 'break', 'training', 'pto', 'holiday'];
 const ENTRY_LABEL = { direct: 'Direct (job)', indirect: 'Indirect / shop', break: 'Break', training: 'Training', pto: 'PTO', holiday: 'Holiday' };
@@ -199,7 +200,7 @@ export default function PayrollPage() {
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="#attendance">Attendance</a>
         <a className="navlink" href="/admin/costing">Job Costing</a>
-        <a className="navlink" href="/supervisor">Supervisor Board</a>
+        <RoleNav current="admin" />
         <button className="toplink" onClick={logout}>Sign out</button>
       </div>
     </div>
