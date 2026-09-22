@@ -69,40 +69,104 @@ export async function POST(request) {
     const { type } = body;
     if (type === 'department') {
       if (!body.name?.trim()) throw new Error('Department name is required.');
-      const result = await query('insert into departments(name) values ($1) returning id,name,active', [body.name.trim()]);
-      return NextResponse.json({ item: result.rows[0] });
+      try {
+        if (body.id) {
+          const result = await query('update departments set name=$1,active=$2 where id=$3 returning id,name,active', [body.name.trim(), body.active !== false, body.id]);
+          return NextResponse.json({ item: result.rows[0] });
+        }
+        const result = await query('insert into departments(name) values ($1) returning id,name,active', [body.name.trim()]);
+        return NextResponse.json({ item: result.rows[0] });
+      } catch (e) {
+        if (e.code === '23505') throw new Error('A department with that name already exists.');
+        throw e;
+      }
+    }
+    if (type === 'departmentDelete') {
+      const { id } = body;
+      try {
+        await query('delete from departments where id=$1', [id]);
+        return NextResponse.json({ ok: true });
+      } catch (e) {
+        if (e.code === '23503') throw new Error('This department has people or scheduled work assigned to it, so it can\'t be deleted — deactivate it instead to hide it from new work while keeping history intact.');
+        throw e;
+      }
     }
     if (type === 'employee') {
       const { id, employeeCode, fullName, departmentId, role, pin, active } = body;
       if (!employeeCode?.trim() || !fullName?.trim() || (!id && (!pin || String(pin).length < 4))) throw new Error('Employee code, name, and a four-digit PIN are required for a new employee.');
       if (!['employee', 'supervisor', 'admin'].includes(role)) throw new Error('Choose a valid role.');
-      if (id) {
-        if (pin && String(pin).length < 4) throw new Error('A replacement PIN must have at least four digits.');
-        const isActive = active !== false;
-        const values=[employeeCode.trim().toUpperCase(),fullName.trim(),departmentId||null,role,isActive,id];
-        let sql='update employees set employee_code=$1,full_name=$2,department_id=$3,role=$4,active=$5';
-        if (pin) { values.splice(5,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$6 where id=$7'; } else sql+=' where id=$6';
-        await query(sql,values);
-      } else {
-        const hash = await bcrypt.hash(String(pin), 10);
-        await query(`insert into employees(employee_code,full_name,department_id,role,pin_hash) values ($1,$2,$3,$4,$5)`, [employeeCode.trim().toUpperCase(), fullName.trim(), departmentId || null, role, hash]);
+      try {
+        if (id) {
+          if (pin && String(pin).length < 4) throw new Error('A replacement PIN must have at least four digits.');
+          const isActive = active !== false;
+          const values=[employeeCode.trim().toUpperCase(),fullName.trim(),departmentId||null,role,isActive,id];
+          let sql='update employees set employee_code=$1,full_name=$2,department_id=$3,role=$4,active=$5';
+          if (pin) { values.splice(5,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$6 where id=$7'; } else sql+=' where id=$6';
+          await query(sql,values);
+        } else {
+          const hash = await bcrypt.hash(String(pin), 10);
+          await query(`insert into employees(employee_code,full_name,department_id,role,pin_hash) values ($1,$2,$3,$4,$5)`, [employeeCode.trim().toUpperCase(), fullName.trim(), departmentId || null, role, hash]);
+        }
+      } catch (e) {
+        if (e.code === '23505') throw new Error('An employee with that employee code already exists.');
+        throw e;
       }
       return NextResponse.json({ ok: true });
+    }
+    if (type === 'employeeDelete') {
+      const { id } = body;
+      try {
+        await query('delete from employees where id=$1', [id]);
+        return NextResponse.json({ ok: true });
+      } catch (e) {
+        if (e.code === '23503') throw new Error('This team member has time entries, assignments, or material transactions on record, so they can\'t be deleted — deactivate them instead to keep history intact.');
+        throw e;
+      }
     }
     if (type === 'job') {
       const { id, jobNumber, customerName, description, dueDate, priority, status } = body;
       if (!jobNumber?.trim() || !description?.trim()) throw new Error('Job number and description are required.');
       const validStatus = ['not_started','in_progress','on_hold','complete','closed'].includes(status) ? status : 'not_started';
-      if(id) await query('update jobs set job_number=$1,customer_name=$2,description=$3,due_date=$4,priority=$5,status=$6 where id=$7',[jobNumber.trim().toUpperCase(),customerName?.trim()||null,description.trim(),dueDate||null,Number(priority)||3,validStatus,id]);
-      else await query(`insert into jobs(job_number,customer_name,description,due_date,priority) values ($1,$2,$3,$4,$5)`, [jobNumber.trim().toUpperCase(), customerName?.trim() || null, description.trim(), dueDate || null, Number(priority) || 3]);
+      try {
+        if(id) await query('update jobs set job_number=$1,customer_name=$2,description=$3,due_date=$4,priority=$5,status=$6 where id=$7',[jobNumber.trim().toUpperCase(),customerName?.trim()||null,description.trim(),dueDate||null,Number(priority)||3,validStatus,id]);
+        else await query(`insert into jobs(job_number,customer_name,description,due_date,priority) values ($1,$2,$3,$4,$5)`, [jobNumber.trim().toUpperCase(), customerName?.trim() || null, description.trim(), dueDate || null, Number(priority) || 3]);
+      } catch (e) {
+        if (e.code === '23505') throw new Error('A job with that job number already exists.');
+        throw e;
+      }
       return NextResponse.json({ ok: true });
+    }
+    if (type === 'jobDelete') {
+      const { id } = body;
+      try {
+        await query('delete from jobs where id=$1', [id]);
+        return NextResponse.json({ ok: true });
+      } catch (e) {
+        if (e.code === '23503') throw new Error('This job has time entries or material transactions on record, so it can\'t be deleted — close it instead to keep history intact.');
+        throw e;
+      }
     }
     if (type === 'material') {
       const { id, itemCode, description, unitOfMeasure, standardCost, active } = body;
       if (!itemCode?.trim() || !description?.trim() || !unitOfMeasure?.trim()) throw new Error('Item code, description, and unit of measure are required.');
-      if(id) await query('update materials set item_code=$1,description=$2,unit_of_measure=$3,standard_cost=$4,active=$5 where id=$6',[itemCode.trim().toUpperCase(),description.trim(),unitOfMeasure.trim(),standardCost===''?null:Number(standardCost),active!==false,id]);
-      else await query(`insert into materials(item_code,description,unit_of_measure,standard_cost) values ($1,$2,$3,$4)`, [itemCode.trim().toUpperCase(), description.trim(), unitOfMeasure.trim(), standardCost === '' ? null : Number(standardCost)]);
+      try {
+        if(id) await query('update materials set item_code=$1,description=$2,unit_of_measure=$3,standard_cost=$4,active=$5 where id=$6',[itemCode.trim().toUpperCase(),description.trim(),unitOfMeasure.trim(),standardCost===''?null:Number(standardCost),active!==false,id]);
+        else await query(`insert into materials(item_code,description,unit_of_measure,standard_cost) values ($1,$2,$3,$4)`, [itemCode.trim().toUpperCase(), description.trim(), unitOfMeasure.trim(), standardCost === '' ? null : Number(standardCost)]);
+      } catch (e) {
+        if (e.code === '23505') throw new Error('A material with that item code already exists.');
+        throw e;
+      }
       return NextResponse.json({ ok: true });
+    }
+    if (type === 'materialDelete') {
+      const { id } = body;
+      try {
+        await query('delete from materials where id=$1', [id]);
+        return NextResponse.json({ ok: true });
+      } catch (e) {
+        if (e.code === '23503') throw new Error('This material has transactions or planned job usage on record, so it can\'t be deleted — deactivate it instead to keep history intact.');
+        throw e;
+      }
     }
     if (type === 'operation') {
       const { id, jobId, departmentId, operationName, sequenceNo, estimatedHours, plannedStart, plannedFinish, status } = body;
