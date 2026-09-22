@@ -2,6 +2,7 @@
 import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BrandMark from '../../components/BrandMark';
 
 function hoursFmt(h) { return (Math.round((h || 0) * 100) / 100).toFixed(2); }
 function money(n) { return '$' + (Math.round((n || 0) * 100) / 100).toFixed(2); }
@@ -113,7 +114,7 @@ export default function JobCostingPage() {
 
   return <main className="shell">
     <div className="topbar">
-      <a className="brand" href="/admin">MASTERCRAFT ADMIN</a>
+      <a className="brand" href="/admin"><BrandMark />MASTERCRAFT ADMIN</a>
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="/admin/payroll">Payroll</a>

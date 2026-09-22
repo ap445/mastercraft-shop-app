@@ -2,6 +2,7 @@
 import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BrandMark from '../../components/BrandMark';
 
 const blankJob = { id:'', jobNumber:'', customerName:'', description:'', dueDate:'', priority:'3', status:'not_started' };
 const blankOperation = { id:'', jobId:'', departmentId:'', operationName:'', sequenceNo:'1', estimatedHours:'', plannedStart:'', plannedFinish:'', status:'queued' };
@@ -142,7 +143,7 @@ export default function JobSetupPage(){
 
   return <main className="shell">
     <div className="topbar">
-      <a className="brand" href="/admin">MASTERCRAFT ADMIN</a>
+      <a className="brand" href="/admin"><BrandMark />MASTERCRAFT ADMIN</a>
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="/admin#records">Records</a>

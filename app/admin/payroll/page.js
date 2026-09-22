@@ -2,6 +2,7 @@
 import '../../globals.css';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import BrandMark from '../../components/BrandMark';
 
 const ENTRY_TYPES = ['direct', 'indirect', 'break', 'training', 'pto', 'holiday'];
 const ENTRY_LABEL = { direct: 'Direct (job)', indirect: 'Indirect / shop', break: 'Break', training: 'Training', pto: 'PTO', holiday: 'Holiday' };
@@ -77,7 +78,7 @@ export default function PayrollPage() {
     document.getElementById('time-entries')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function editMaterialTx(mt) {
-    setMtForm({ id: mt.id, jobId: String(mt.job_id), operationId: mt.operation_id ? String(mt.operation_id) : '', materialId: String(mt.material_id), employeeId: String(mt.employee_id), transactionType: mt.transaction_type, quantity: String(mt.quantity), unitCost: mt.unit_cost ?? '', occurredAt: toLocalInput(mt.occurred_at), notes: mt.notes || '' });
+    setMtForm({ id: mt.id, jobId: String(mt.job_id), operationId: mt.operation_id ? String(mt.operation_id) : '', materialId: mt.material_id ? String(mt.material_id) : '', employeeId: String(mt.employee_id), transactionType: mt.transaction_type, quantity: String(mt.quantity), unitCost: mt.unit_cost ?? '', occurredAt: toLocalInput(mt.occurred_at), notes: mt.notes || (mt.custom_material_name ? `Originally logged as "${mt.custom_material_name}"` : '') });
     document.getElementById('material-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -193,7 +194,7 @@ export default function PayrollPage() {
 
   return <main className="shell">
     <div className="topbar">
-      <a className="brand" href="/admin">MASTERCRAFT ADMIN</a>
+      <a className="brand" href="/admin"><BrandMark />MASTERCRAFT ADMIN</a>
       <div className="navlinks">
         <a className="navlink" href="/admin">Setup</a>
         <a className="navlink" href="#attendance">Attendance</a>

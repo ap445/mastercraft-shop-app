@@ -148,6 +148,13 @@ create table if not exists material_transactions (
 );
 alter table material_transactions alter column job_id drop not null;
 
+-- let an employee log material use for something that isn't in the catalog yet,
+-- as a free-text name instead of a materials.id
+alter table material_transactions alter column material_id drop not null;
+alter table material_transactions add column if not exists custom_material_name text;
+alter table material_transactions drop constraint if exists material_transactions_material_ref_check;
+alter table material_transactions add constraint material_transactions_material_ref_check check (material_id is not null or custom_material_name is not null);
+
 create index if not exists material_transactions_job_idx on material_transactions(job_id, occurred_at);
 
 create table if not exists job_materials (

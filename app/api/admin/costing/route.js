@@ -24,12 +24,12 @@ export async function GET() {
              left join operations o on o.id=te.operation_id
              left join jobs j on j.id=te.job_id
              order by te.started_at desc`),
-      query(`select mt.id, mt.job_id, mt.operation_id, mt.material_id, mt.employee_id, mt.transaction_type, mt.quantity, mt.unit_cost, mt.occurred_at, mt.notes,
-                    m.item_code, m.description as material_description, m.unit_of_measure,
+      query(`select mt.id, mt.job_id, mt.operation_id, mt.material_id, mt.custom_material_name, mt.employee_id, mt.transaction_type, mt.quantity, mt.unit_cost, mt.occurred_at, mt.notes,
+                    m.item_code, coalesce(m.description, mt.custom_material_name) as material_description, m.unit_of_measure,
                     e.full_name as employee_name,
                     j.job_number
              from material_transactions mt
-             join materials m on m.id=mt.material_id
+             left join materials m on m.id=mt.material_id
              join employees e on e.id=mt.employee_id
              left join jobs j on j.id=mt.job_id
              order by mt.occurred_at desc`),
