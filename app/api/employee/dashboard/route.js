@@ -8,7 +8,7 @@ export async function GET() {
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const employeeId = auth.session.employeeId;
 
-    const [employeeR, activeR, assignmentsR, materialsR, guidanceR] = await Promise.all([
+    const [employeeR, activeR, assignmentsR, openJobsR, materialsR, guidanceR] = await Promise.all([
       query(`select e.id,e.employee_code,e.full_name,e.role,
                     case when d.id is null then null else json_build_object('name',d.name) end as departments
              from employees e left join departments d on d.id=e.department_id where e.id=$1`, [employeeId]),
@@ -32,6 +32,9 @@ export async function GET() {
              join departments d on d.id=o.department_id
              where a.employee_id=$1 and o.status <> 'complete'
              order by a.assigned_at asc`, [employeeId]),
+      query(`select id,job_number,customer_name,description,due_date,priority
+             from jobs where status not in ('complete','closed')
+             order by priority asc, due_date asc nulls last, job_number asc`),
       query(`select id,item_code,description,unit_of_measure,standard_cost from materials where active=true order by description`),
       query(`select g.id,g.scope_type,g.title,g.instructions,g.daily_goal,g.guidance_date,d.name as department_name,j.job_number,
                     coalesce((select json_agg(json_build_object('id',ga.id,'filename',ga.filename,'file_size',ga.file_size) order by ga.uploaded_at)
@@ -59,6 +62,7 @@ export async function GET() {
       employee: employeeR.rows[0] || null,
       active: activeR.rows[0] || null,
       assignments: assignmentsR.rows,
+      openJobs: openJobsR.rows,
       materials: materialsR.rows,
       guidance: guidanceR.rows
     });
