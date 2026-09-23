@@ -59,24 +59,19 @@ export default function EmployeePage(){
     await action('/api/employee/material',{materialId:materialId==='__custom__'?null:Number(materialId),customMaterialName:materialId==='__custom__'?customMaterial.trim():undefined,quantity:n,transactionType},'material');
     if(materialId==='__custom__')setCustomMaterial('');
   }
-  async function stopWithNotes(complete,label){if(!stopNotes.trim()){setError('Add a quick note about what you did before clocking out.');return;}setBusy(label);setError('');try{const res=await fetch('/api/employee/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({complete,notes:stopNotes.trim()})});const j=await res.json();if(!res.ok)throw new Error(j.error||'Action failed');setStopNotes('');await load();}catch(e){setError(e.message);}finally{setBusy('');}}
+  async function stopWithNotes(label){if(!stopNotes.trim()){setError('Add a quick note about what you did before clocking out.');return;}setBusy(label);setError('');try{const res=await fetch('/api/employee/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({notes:stopNotes.trim()})});const j=await res.json();if(!res.ok)throw new Error(j.error||'Action failed');setStopNotes('');await load();}catch(e){setError(e.message);}finally{setBusy('');}}
   async function logout(){await fetch('/api/auth/logout',{method:'POST'});router.push('/login');router.refresh();}
   if(!data)return <main className="shell"><div className="container narrow"><div className="card">Loading shop data...</div></div></main>;
   const active=data.active;
   return <main className="shell"><div className="topbar"><a className="brand" href="/employee"><BrandMark />MASTERCRAFT</a><div className="navlinks"><RoleNav current="employee" /><button className="toplink" onClick={logout}>Sign out</button></div></div><div className="container narrow">
-    <div className="card identity"><div><div className="kicker">Employee</div><div className="big">{data.employee.full_name}</div><div className="muted">{data.employee.departments?.name||'Unassigned Department'}</div></div><span className="badge active">Online</span></div>
+    <div className="card identity"><div><div className="kicker">Employee</div><div className="big">{data.employee.full_name}</div></div><span className="badge active">Online</span></div>
     {error&&<div className="alert error">{error}</div>}
     <InstallBanner />
-    {data.guidance?.length>0&&<div className="card"><div className="kicker">Today’s guidance</div>{data.guidance.map(g=><div className="guidance" key={g.id}><strong>{g.title}</strong>{g.job_number&&<span className="badge" style={{marginLeft:'8px'}}>{g.job_number}</span>}{g.instructions&&<div className="muted">{g.instructions}</div>}{g.daily_goal&&<div className="goal">Daily goal: {g.daily_goal}</div>}{g.attachments?.length>0&&<div className="muted" style={{marginTop:'6px'}}>{g.attachments.map(a=><a key={a.id} href={`/api/attachments/${a.id}`} style={{marginRight:'12px'}}>📎 {a.filename}</a>)}</div>}</div>)}</div>}
     {active ? <>
-      <div className="card current-card"><div className="kicker">Current {active.jobs?'Job':'Activity'}</div><div className="big jobno">{active.jobs?.job_number||cap(active.entry_type)}</div><div className="jobtitle">{active.jobs?.description||'Non-job time'}</div><div className="muted">{active.operations?.operation_name||''}</div><div className="timer">{elapsed}</div>
+      <div className="card current-card"><div className="kicker">Current {active.jobs?'Job':'Activity'}</div><div className="big jobno">{active.jobs?.job_number||cap(active.entry_type)}</div><div className="jobtitle">{active.jobs?.description||'Non-job time'}</div><div className="timer">{elapsed}</div>
         <button className="btn good" onClick={()=>document.getElementById('material')?.scrollIntoView({behavior:'smooth'})}>ADD MATERIAL</button>
         <div className="field"><label>Note before you clock out</label><input value={stopNotes} onChange={e=>setStopNotes(e.target.value)} placeholder="What did you get done?" /></div>
-        {active.operations?<>
-          <button disabled={!!busy} className="btn secondary" onClick={()=>stopWithNotes(false,'stop')}>{busy==='stop'?'STOPPING...':'STOP / CHANGE JOB'}</button>
-          <button disabled={!!busy} className="btn danger" onClick={()=>stopWithNotes(true,'complete')}>{busy==='complete'?'COMPLETING...':'COMPLETE OPERATION'}</button>
-        </>:active.jobs?<button disabled={!!busy} className="btn secondary" onClick={()=>stopWithNotes(false,'stop')}>{busy==='stop'?'STOPPING...':'STOP / CHANGE JOB'}</button>
-        :<button disabled={!!busy} className="btn secondary" onClick={()=>stopWithNotes(false,'stop')}>{busy==='stop'?'STOPPING...':'CLOCK OUT'}</button>}
+        <button disabled={!!busy} className="btn secondary" onClick={()=>stopWithNotes('stop')}>{busy==='stop'?'STOPPING...':active.jobs?'STOP / CHANGE JOB':'CLOCK OUT'}</button>
       </div>
       <div className="card" id="material"><div className="kicker">Material Usage</div><h2>Record material</h2>
         <div className="field"><label>Material</label><select value={materialId} onChange={e=>setMaterialId(e.target.value)}>{data.materials.map(m=><option key={m.id} value={m.id}>{m.item_code?`${m.item_code} · `:''}{m.description} ({m.unit_of_measure})</option>)}<option value="__custom__">Other (not in our list)</option></select></div>
@@ -85,9 +80,6 @@ export default function EmployeePage(){
         <button disabled={!!busy||!materialId||(materialId==='__custom__'&&!customMaterial.trim())} className="btn primary" onClick={recordMaterial}>{busy==='material'?'SAVING...':'RECORD MATERIAL'}</button>
       </div>
     </> : <>
-      {data.assignments.length>0?<div className="card"><div className="kicker">My Work</div><h2>Assigned Jobs</h2>
-        {data.assignments.map(a=>{const o=a.operations;return <div key={a.id} className="work-item"><div className="row"><strong>{o.jobs?.job_number}</strong><span className={'badge '+(o.status==='in_progress'?'active':'queued')}>{String(o.status).replaceAll('_',' ')}</span></div><div className="jobtitle small">{o.jobs?.description}</div><div className="muted">{o.operation_name} · {o.departments?.name||''}{o.estimated_hours?` · Est. ${o.estimated_hours} hrs`:''}</div><button disabled={!!busy} className="btn primary compact" onClick={()=>action('/api/employee/start',{operationId:o.id},`start-${o.id}`)}>{busy===`start-${o.id}`?'STARTING...':'START JOB'}</button></div>})}
-      </div>:null}
       <div className="card"><div className="kicker">Start a Job</div><h2>What job are you working on?</h2>
         {data.openJobs.length===0?<p className="muted">No open jobs yet — ask your admin to add one.</p>:<>
         <div className="field"><label>Job</label><select value={quickJobId} onChange={e=>setQuickJobId(e.target.value)}><option value="">Choose a job…</option>{data.openJobs.map(j=><option key={j.id} value={j.id}>{j.job_number} — {j.description}</option>)}</select></div>

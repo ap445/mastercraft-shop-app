@@ -3,14 +3,13 @@ import { useEffect, useState } from 'react';
 
 const VIEWS = [
   { role: 'admin', href: '/admin', label: 'Admin Setup' },
-  { role: 'supervisor', href: '/supervisor', label: 'Supervisor Board' },
   { role: 'employee', href: '/employee', label: 'My Work' }
 ];
-const CAN_SEE = { admin: ['admin', 'supervisor', 'employee'], supervisor: ['supervisor', 'employee'], employee: ['employee'] };
+const CAN_SEE = { admin: ['admin', 'employee'], employee: ['employee'] };
 
-// Shows links to whichever of Admin / Supervisor / Employee views the signed-in
-// person has access to, besides the one they're already on — so anyone with
-// more than one role can move between them from any page.
+// Shows links to whichever of Admin / Employee views the signed-in person
+// has access to, besides the one they're already on — so an admin can jump
+// to the employee view (and back) from any page.
 export default function RoleNav({ current }) {
   const [role, setRole] = useState(null);
   useEffect(() => {

@@ -11,36 +11,21 @@ export async function GET() {
   try {
     const auth = await requireAdmin();
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
-    const [departments, employees, jobs, materials, guidance, operations, timeEntries, materialTransactions, jobMaterials] = await Promise.all([
-      query('select id,name,active from departments order by name'),
-      query(`select e.id,e.employee_code,e.full_name,e.department_id,e.role,e.active,d.name as department_name
-             from employees e left join departments d on d.id=e.department_id order by e.full_name`),
+    const [employees, jobs, materials, timeEntries, materialTransactions, jobMaterials] = await Promise.all([
+      query('select id,employee_code,full_name,role,active from employees order by full_name'),
       query('select id,job_number,customer_name,description,due_date,priority,status from jobs order by created_at desc'),
       query('select id,item_code,description,unit_of_measure,standard_cost,active from materials order by item_code'),
-      query(`select g.id,g.scope_type,g.role,g.department_id,g.job_id,g.guidance_date,g.title,g.instructions,g.daily_goal,d.name as department_name,j.job_number,
-                    coalesce((select json_agg(json_build_object('id',ga.id,'filename',ga.filename,'content_type',ga.content_type,'file_size',ga.file_size,'uploaded_at',ga.uploaded_at) order by ga.uploaded_at)
-                              from guidance_attachments ga where ga.guidance_id=g.id),'[]'::json) as attachments
-             from daily_guidance g left join departments d on d.id=g.department_id left join jobs j on j.id=g.job_id
-             where g.active=true order by g.scope_type,coalesce(j.job_number,''),coalesce(d.name,''),g.guidance_date nulls first,g.title`),
-      query(`select o.id,o.job_id,o.department_id,o.operation_name,o.sequence_no,o.estimated_hours,o.planned_start,o.planned_finish,o.status,
-                    j.job_number,j.description as job_description,d.name as department_name,
-                    coalesce((select json_agg(json_build_object('employee_id',e.id,'full_name',e.full_name) order by e.full_name)
-                              from assignments a join employees e on e.id=a.employee_id where a.operation_id=o.id),'[]'::json) as assigned
-             from operations o join jobs j on j.id=o.job_id join departments d on d.id=o.department_id
-             order by j.job_number,o.sequence_no`),
-      query(`select te.id, te.job_id, te.operation_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at, te.notes, te.adjusted_by,
+      query(`select te.id, te.job_id, te.employee_id, te.entry_type, te.started_at, te.stopped_at, te.notes, te.adjusted_by,
                     e.full_name as employee_name,
                     adj.full_name as adjusted_by_name,
-                    o.operation_name, o.sequence_no,
                     j.job_number,
                     extract(epoch from (coalesce(te.stopped_at, now()) - te.started_at))/3600.0 as hours
              from time_entries te
              join employees e on e.id=te.employee_id
              left join employees adj on adj.id=te.adjusted_by
-             left join operations o on o.id=te.operation_id
              left join jobs j on j.id=te.job_id
              order by te.started_at desc`),
-      query(`select mt.id, mt.job_id, mt.operation_id, mt.material_id, mt.custom_material_name, mt.employee_id, mt.transaction_type, mt.quantity, mt.unit_cost, mt.occurred_at, mt.notes,
+      query(`select mt.id, mt.job_id, mt.material_id, mt.custom_material_name, mt.employee_id, mt.transaction_type, mt.quantity, mt.unit_cost, mt.occurred_at, mt.notes,
                     m.item_code, coalesce(m.description, mt.custom_material_name) as material_description, m.unit_of_measure,
                     e.full_name as employee_name,
                     j.job_number
@@ -57,7 +42,7 @@ export async function GET() {
              join materials m on m.id=jm.material_id
              order by j.job_number, m.item_code`)
     ]);
-    return NextResponse.json({ departments: departments.rows, employees: employees.rows, jobs: jobs.rows, materials: materials.rows, guidance: guidance.rows, operations: operations.rows, timeEntries: timeEntries.rows, materialTransactions: materialTransactions.rows, jobMaterials: jobMaterials.rows });
+    return NextResponse.json({ employees: employees.rows, jobs: jobs.rows, materials: materials.rows, timeEntries: timeEntries.rows, materialTransactions: materialTransactions.rows, jobMaterials: jobMaterials.rows });
   } catch (e) { return NextResponse.json({ error: e.message || 'Unable to load setup data.' }, { status: 500 }); }
 }
 
@@ -68,19 +53,17 @@ export async function POST(request) {
     const body = await request.json();
     const { type } = body;
     if (type === 'resetAllData') {
-      if (body.confirm !== 'RESET') throw new Error('Type RESET (all caps) to confirm — this permanently deletes every job, time entry, material transaction, department, team member, and material.');
+      if (body.confirm !== 'RESET') throw new Error('Type RESET (all caps) to confirm — this permanently deletes every job, time entry, material transaction, and team member.');
       const keepId = auth.session.employeeId;
       const client = await getDb().connect();
       try {
         await client.query('begin');
         await client.query('delete from material_transactions');
         await client.query('delete from time_entries');
-        await client.query('delete from daily_guidance');
+        await client.query('delete from job_materials');
         await client.query('delete from jobs');
         await client.query('delete from materials');
-        await client.query('update employees set department_id=null where id=$1', [keepId]);
         await client.query('delete from employees where id<>$1', [keepId]);
-        await client.query('delete from departments');
         await client.query('commit');
       } catch (e) {
         await client.query('rollback');
@@ -90,45 +73,21 @@ export async function POST(request) {
       }
       return NextResponse.json({ ok: true });
     }
-    if (type === 'department') {
-      if (!body.name?.trim()) throw new Error('Department name is required.');
-      try {
-        if (body.id) {
-          const result = await query('update departments set name=$1,active=$2 where id=$3 returning id,name,active', [body.name.trim(), body.active !== false, body.id]);
-          return NextResponse.json({ item: result.rows[0] });
-        }
-        const result = await query('insert into departments(name) values ($1) returning id,name,active', [body.name.trim()]);
-        return NextResponse.json({ item: result.rows[0] });
-      } catch (e) {
-        if (e.code === '23505') throw new Error('A department with that name already exists.');
-        throw e;
-      }
-    }
-    if (type === 'departmentDelete') {
-      const { id } = body;
-      try {
-        await query('delete from departments where id=$1', [id]);
-        return NextResponse.json({ ok: true });
-      } catch (e) {
-        if (e.code === '23503') throw new Error('This department has people or scheduled work assigned to it, so it can\'t be deleted — deactivate it instead to hide it from new work while keeping history intact.');
-        throw e;
-      }
-    }
     if (type === 'employee') {
-      const { id, employeeCode, fullName, departmentId, role, pin, active } = body;
+      const { id, employeeCode, fullName, role, pin, active } = body;
       if (!employeeCode?.trim() || !fullName?.trim() || (!id && (!pin || String(pin).length < 4))) throw new Error('Employee code, name, and a four-digit PIN are required for a new employee.');
-      if (!['employee', 'supervisor', 'admin'].includes(role)) throw new Error('Choose a valid role.');
+      if (!['employee', 'admin'].includes(role)) throw new Error('Choose a valid role.');
       try {
         if (id) {
           if (pin && String(pin).length < 4) throw new Error('A replacement PIN must have at least four digits.');
           const isActive = active !== false;
-          const values=[employeeCode.trim().toUpperCase(),fullName.trim(),departmentId||null,role,isActive,id];
-          let sql='update employees set employee_code=$1,full_name=$2,department_id=$3,role=$4,active=$5';
-          if (pin) { values.splice(5,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$6 where id=$7'; } else sql+=' where id=$6';
+          const values=[employeeCode.trim().toUpperCase(),fullName.trim(),role,isActive,id];
+          let sql='update employees set employee_code=$1,full_name=$2,role=$3,active=$4';
+          if (pin) { values.splice(4,0,await bcrypt.hash(String(pin),10)); sql+=',pin_hash=$5 where id=$6'; } else sql+=' where id=$5';
           await query(sql,values);
         } else {
           const hash = await bcrypt.hash(String(pin), 10);
-          await query(`insert into employees(employee_code,full_name,department_id,role,pin_hash) values ($1,$2,$3,$4,$5)`, [employeeCode.trim().toUpperCase(), fullName.trim(), departmentId || null, role, hash]);
+          await query(`insert into employees(employee_code,full_name,role,pin_hash) values ($1,$2,$3,$4)`, [employeeCode.trim().toUpperCase(), fullName.trim(), role, hash]);
         }
       } catch (e) {
         if (e.code === '23505') throw new Error('An employee with that employee code already exists.');
@@ -142,7 +101,7 @@ export async function POST(request) {
         await query('delete from employees where id=$1', [id]);
         return NextResponse.json({ ok: true });
       } catch (e) {
-        if (e.code === '23503') throw new Error('This team member has time entries, assignments, or material transactions on record, so they can\'t be deleted — deactivate them instead to keep history intact.');
+        if (e.code === '23503') throw new Error('This team member has time entries or material transactions on record, so they can\'t be deleted — deactivate them instead to keep history intact.');
         throw e;
       }
     }
@@ -191,28 +150,6 @@ export async function POST(request) {
         throw e;
       }
     }
-    if (type === 'operation') {
-      const { id, jobId, departmentId, operationName, sequenceNo, estimatedHours, plannedStart, plannedFinish, status } = body;
-      if (!jobId || !departmentId || !operationName?.trim()) throw new Error('Job, department, and operation name are required.');
-      const seq = Number(sequenceNo) || 1;
-      const hours = estimatedHours === '' || estimatedHours == null ? null : Number(estimatedHours);
-      const validStatus = ['queued','ready','in_progress','paused','blocked','complete'].includes(status) ? status : 'queued';
-      try {
-        if (id) await query(
-          `update operations set job_id=$1,department_id=$2,operation_name=$3,sequence_no=$4,estimated_hours=$5,planned_start=$6,planned_finish=$7,status=$8 where id=$9`,
-          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null, validStatus, id]
-        );
-        else await query(
-          `insert into operations(job_id,department_id,operation_name,sequence_no,estimated_hours,planned_start,planned_finish)
-           values ($1,$2,$3,$4,$5,$6,$7)`,
-          [jobId, departmentId, operationName.trim(), seq, hours, plannedStart || null, plannedFinish || null]
-        );
-      } catch (e) {
-        if (e.code === '23505') throw new Error(`This job already has an operation with sequence #${seq}. Choose a different sequence number.`);
-        throw e;
-      }
-      return NextResponse.json({ ok: true });
-    }
     if (type === 'jobMaterial') {
       const { jobId, materialId, plannedQuantity, notes } = body;
       const qty = Number(plannedQuantity);
@@ -231,19 +168,19 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
     if (type === 'timeEntry') {
-      const { id, employeeId, jobId, operationId, entryType, startedAt, stoppedAt, notes } = body;
+      const { id, employeeId, jobId, entryType, startedAt, stoppedAt, notes } = body;
       if (!employeeId || !entryType || !startedAt) throw new Error('Employee, type, and a start time are required.');
       if (!['direct', 'indirect', 'break', 'training', 'pto', 'holiday'].includes(entryType)) throw new Error('Choose a valid time type.');
       if (stoppedAt && new Date(stoppedAt) < new Date(startedAt)) throw new Error('Stop time must be on or after the start time.');
       try {
         if (id) await query(
-          `update time_entries set employee_id=$1,job_id=$2,operation_id=$3,entry_type=$4,started_at=$5,stopped_at=$6,notes=$7,adjusted_by=$8 where id=$9`,
-          [employeeId, jobId || null, operationId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId, id]
+          `update time_entries set employee_id=$1,job_id=$2,entry_type=$3,started_at=$4,stopped_at=$5,notes=$6,adjusted_by=$7 where id=$8`,
+          [employeeId, jobId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId, id]
         );
         else await query(
-          `insert into time_entries(employee_id,job_id,operation_id,entry_type,started_at,stopped_at,notes,adjusted_by)
-           values ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [employeeId, jobId || null, operationId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId]
+          `insert into time_entries(employee_id,job_id,entry_type,started_at,stopped_at,notes,adjusted_by)
+           values ($1,$2,$3,$4,$5,$6,$7)`,
+          [employeeId, jobId || null, entryType, startedAt, stoppedAt || null, notes?.trim() || null, auth.session.employeeId]
         );
       } catch (e) {
         if (e.code === '23505') throw new Error('This employee already has an open time entry. Set a stop time here, or close the other entry first.');
@@ -259,7 +196,7 @@ export async function POST(request) {
       return NextResponse.json({ ok: true });
     }
     if (type === 'materialTransaction') {
-      const { id, jobId, operationId, materialId, employeeId, transactionType, quantity, unitCost, occurredAt, notes } = body;
+      const { id, jobId, materialId, employeeId, transactionType, quantity, unitCost, occurredAt, notes } = body;
       const qty = Number(quantity);
       if (!jobId || !materialId || !employeeId || !qty || qty <= 0) throw new Error('Job, material, employee, and a positive quantity are required.');
       if (!['issue', 'return'].includes(transactionType)) throw new Error('Choose issue or return.');
@@ -270,13 +207,13 @@ export async function POST(request) {
       }
       const occurred = occurredAt || new Date().toISOString();
       if (id) await query(
-        `update material_transactions set job_id=$1,operation_id=$2,material_id=$3,employee_id=$4,transaction_type=$5,quantity=$6,unit_cost=$7,occurred_at=$8,notes=$9 where id=$10`,
-        [jobId, operationId || null, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null, id]
+        `update material_transactions set job_id=$1,material_id=$2,employee_id=$3,transaction_type=$4,quantity=$5,unit_cost=$6,occurred_at=$7,notes=$8 where id=$9`,
+        [jobId, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null, id]
       );
       else await query(
-        `insert into material_transactions(job_id,operation_id,material_id,employee_id,transaction_type,quantity,unit_cost,occurred_at,notes)
-         values ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [jobId, operationId || null, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null]
+        `insert into material_transactions(job_id,material_id,employee_id,transaction_type,quantity,unit_cost,occurred_at,notes)
+         values ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [jobId, materialId, employeeId, transactionType, qty, cost, occurred, notes?.trim() || null]
       );
       return NextResponse.json({ ok: true });
     }
@@ -309,61 +246,6 @@ export async function POST(request) {
         imported += 1;
       }
       return NextResponse.json({ imported, skipped });
-    }
-    if (type === 'guidance') {
-      const { id, scopeType, role, departmentId, jobId, title, instructions, dailyGoal, guidanceDate } = body;
-      if (!['role','department','job'].includes(scopeType) || !title?.trim()) throw new Error('Choose a scope and provide a title.');
-      if (scopeType === 'role' && !['employee','supervisor','admin'].includes(role)) throw new Error('Choose a valid role.');
-      if (scopeType === 'department' && !departmentId) throw new Error('Choose a department.');
-      if (scopeType === 'job' && (!jobId || !departmentId)) throw new Error('Choose a job and a department.');
-      const dateVal = scopeType === 'job' && guidanceDate ? guidanceDate : null;
-      let resultId = id;
-      try {
-        if (id) {
-          await query(`update daily_guidance set scope_type=$1,role=$2,department_id=$3,job_id=$4,title=$5,instructions=$6,daily_goal=$7,guidance_date=$8,active=true where id=$9`,
-            [scopeType, scopeType==='role'?role:null, scopeType==='role'?null:departmentId, scopeType==='job'?jobId:null, title.trim(), instructions?.trim()||null, dailyGoal?.trim()||null, dateVal, id]);
-        } else if (scopeType === 'role') {
-          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal)
-                       values ('role',$1,null,null,$2,$3,$4)
-                       on conflict (role) where scope_type='role' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
-                       returning id`,
-            [role, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
-          resultId = r.rows[0]?.id;
-        } else if (scopeType === 'department') {
-          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal)
-                       values ('department',null,$1,null,$2,$3,$4)
-                       on conflict (department_id) where scope_type='department' do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
-                       returning id`,
-            [departmentId, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null]);
-          resultId = r.rows[0]?.id;
-        } else {
-          const conflictTarget = dateVal
-            ? `(job_id,department_id,guidance_date) where scope_type='job' and guidance_date is not null`
-            : `(job_id,department_id) where scope_type='job' and guidance_date is null`;
-          const r = await query(`insert into daily_guidance(scope_type,role,department_id,job_id,title,instructions,daily_goal,guidance_date)
-                       values ('job',null,$1,$2,$3,$4,$5,$6)
-                       on conflict ${conflictTarget} do update set title=excluded.title,instructions=excluded.instructions,daily_goal=excluded.daily_goal,active=true
-                       returning id`,
-            [departmentId, jobId, title.trim(), instructions?.trim() || null, dailyGoal?.trim() || null, dateVal]);
-          resultId = r.rows[0]?.id;
-        }
-      } catch (e) {
-        if (e.code === '23505') throw new Error(dateVal ? 'An expectation for this job, department, and date already exists — edit that one instead.' : 'A general expectation for this job and department already exists — edit that one, or pick a specific date.');
-        throw e;
-      }
-      return NextResponse.json({ ok: true, id: resultId });
-    }
-    if (type === 'guidanceDelete') {
-      const { id } = body;
-      if (!id) throw new Error('Missing expectation to remove.');
-      await query('delete from daily_guidance where id=$1', [id]);
-      return NextResponse.json({ ok: true });
-    }
-    if (type === 'guidanceAttachmentDelete') {
-      const { id } = body;
-      if (!id) throw new Error('Missing attachment to remove.');
-      await query('delete from guidance_attachments where id=$1', [id]);
-      return NextResponse.json({ ok: true });
     }
     throw new Error('Unknown setup item.');
   } catch (e) { return NextResponse.json({ error: e.message || 'Unable to save setup data.' }, { status: 400 }); }

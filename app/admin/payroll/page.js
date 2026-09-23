@@ -40,8 +40,8 @@ function downloadCsv(filename, rows) {
   URL.revokeObjectURL(url);
 }
 
-const blankTimeEntry = { id: '', employeeId: '', jobId: '', operationId: '', entryType: 'direct', startedAt: '', stoppedAt: '', notes: '' };
-const blankMaterialTx = { id: '', jobId: '', operationId: '', materialId: '', employeeId: '', transactionType: 'issue', quantity: '', unitCost: '', occurredAt: '', notes: '' };
+const blankTimeEntry = { id: '', employeeId: '', jobId: '', entryType: 'direct', startedAt: '', stoppedAt: '', notes: '' };
+const blankMaterialTx = { id: '', jobId: '', materialId: '', employeeId: '', transactionType: 'issue', quantity: '', unitCost: '', occurredAt: '', notes: '' };
 
 export default function PayrollPage() {
   const router = useRouter();
@@ -75,18 +75,18 @@ export default function PayrollPage() {
   function mtChange(key, value) { setMtForm(f => ({ ...f, [key]: value })); }
 
   function editTimeEntry(te) {
-    setTeForm({ id: te.id, employeeId: String(te.employee_id), jobId: te.job_id ? String(te.job_id) : '', operationId: te.operation_id ? String(te.operation_id) : '', entryType: te.entry_type, startedAt: toLocalInput(te.started_at), stoppedAt: toLocalInput(te.stopped_at), notes: te.notes || '' });
+    setTeForm({ id: te.id, employeeId: String(te.employee_id), jobId: te.job_id ? String(te.job_id) : '', entryType: te.entry_type, startedAt: toLocalInput(te.started_at), stoppedAt: toLocalInput(te.stopped_at), notes: te.notes || '' });
     document.getElementById('time-entries')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function editMaterialTx(mt) {
-    setMtForm({ id: mt.id, jobId: String(mt.job_id), operationId: mt.operation_id ? String(mt.operation_id) : '', materialId: mt.material_id ? String(mt.material_id) : '', employeeId: String(mt.employee_id), transactionType: mt.transaction_type, quantity: String(mt.quantity), unitCost: mt.unit_cost ?? '', occurredAt: toLocalInput(mt.occurred_at), notes: mt.notes || (mt.custom_material_name ? `Originally logged as "${mt.custom_material_name}"` : '') });
+    setMtForm({ id: mt.id, jobId: String(mt.job_id), materialId: mt.material_id ? String(mt.material_id) : '', employeeId: String(mt.employee_id), transactionType: mt.transaction_type, quantity: String(mt.quantity), unitCost: mt.unit_cost ?? '', occurredAt: toLocalInput(mt.occurred_at), notes: mt.notes || (mt.custom_material_name ? `Originally logged as "${mt.custom_material_name}"` : '') });
     document.getElementById('material-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   async function saveTimeEntry(e) {
     e.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
-      const body = { type: 'timeEntry', id: teForm.id || undefined, employeeId: Number(teForm.employeeId), jobId: teForm.jobId ? Number(teForm.jobId) : null, operationId: teForm.operationId ? Number(teForm.operationId) : null, entryType: teForm.entryType, startedAt: fromLocalInput(teForm.startedAt), stoppedAt: fromLocalInput(teForm.stoppedAt), notes: teForm.notes };
+      const body = { type: 'timeEntry', id: teForm.id || undefined, employeeId: Number(teForm.employeeId), jobId: teForm.jobId ? Number(teForm.jobId) : null, entryType: teForm.entryType, startedAt: fromLocalInput(teForm.startedAt), stoppedAt: fromLocalInput(teForm.stoppedAt), notes: teForm.notes };
       const res = await fetch('/api/admin/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -110,7 +110,7 @@ export default function PayrollPage() {
   async function saveMaterialTx(e) {
     e.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
-      const body = { type: 'materialTransaction', id: mtForm.id || undefined, jobId: Number(mtForm.jobId), operationId: mtForm.operationId ? Number(mtForm.operationId) : null, materialId: Number(mtForm.materialId), employeeId: Number(mtForm.employeeId), transactionType: mtForm.transactionType, quantity: mtForm.quantity, unitCost: mtForm.unitCost, occurredAt: fromLocalInput(mtForm.occurredAt), notes: mtForm.notes };
+      const body = { type: 'materialTransaction', id: mtForm.id || undefined, jobId: Number(mtForm.jobId), materialId: Number(mtForm.materialId), employeeId: Number(mtForm.employeeId), transactionType: mtForm.transactionType, quantity: mtForm.quantity, unitCost: mtForm.unitCost, occurredAt: fromLocalInput(mtForm.occurredAt), notes: mtForm.notes };
       const res = await fetch('/api/admin/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -144,8 +144,6 @@ export default function PayrollPage() {
     if (mtFilterEmployee) rows = rows.filter(m => String(m.employee_id) === String(mtFilterEmployee));
     return rows.slice(0, 300);
   }, [data, mtFilterEmployee]);
-
-  const operationsForJob = (jobId) => (data?.operations || []).filter(o => String(o.job_id) === String(jobId));
 
   const payrollRows = useMemo(() => {
     if (!data || !payStart || !payEnd) return [];
@@ -222,10 +220,7 @@ export default function PayrollPage() {
             <div className="field"><label>Employee</label><select value={teForm.employeeId} onChange={e => teChange('employeeId', e.target.value)}><option value="">Select employee</option>{data.employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}</select></div>
             <div className="field"><label>Type</label><select value={teForm.entryType} onChange={e => teChange('entryType', e.target.value)}>{ENTRY_TYPES.map(t => <option key={t} value={t}>{ENTRY_LABEL[t]}</option>)}</select></div>
           </div>
-          <div className="grid two">
-            <div className="field"><label>Job (optional)</label><select value={teForm.jobId} onChange={e => teChange('jobId', e.target.value)}><option value="">No job</option>{data.jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.description}</option>)}</select></div>
-            <div className="field"><label>Operation (optional)</label><select value={teForm.operationId} onChange={e => teChange('operationId', e.target.value)} disabled={!teForm.jobId}><option value="">No operation</option>{operationsForJob(teForm.jobId).map(o => <option key={o.id} value={o.id}>#{o.sequence_no} {o.operation_name}</option>)}</select></div>
-          </div>
+          <div className="field"><label>Job (optional)</label><select value={teForm.jobId} onChange={e => teChange('jobId', e.target.value)}><option value="">No job</option>{data.jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.description}</option>)}</select></div>
           <div className="grid two">
             <div className="field"><label>Started</label><input type="datetime-local" value={teForm.startedAt} onChange={e => teChange('startedAt', e.target.value)} /></div>
             <div className="field"><label>Stopped (blank = still running)</label><input type="datetime-local" value={teForm.stoppedAt} onChange={e => teChange('stoppedAt', e.target.value)} /></div>
@@ -264,10 +259,7 @@ export default function PayrollPage() {
         <h2>{mtForm.id ? 'Edit a material log entry' : 'Add a missed material entry'}</h2>
         <p className="muted">Use this when someone forgot to log material they issued or returned on a job.</p>
         <form onSubmit={saveMaterialTx}>
-          <div className="grid two">
-            <div className="field"><label>Job</label><select value={mtForm.jobId} onChange={e => mtChange('jobId', e.target.value)}><option value="">Select job</option>{data.jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.description}</option>)}</select></div>
-            <div className="field"><label>Operation (optional)</label><select value={mtForm.operationId} onChange={e => mtChange('operationId', e.target.value)} disabled={!mtForm.jobId}><option value="">No operation</option>{operationsForJob(mtForm.jobId).map(o => <option key={o.id} value={o.id}>#{o.sequence_no} {o.operation_name}</option>)}</select></div>
-          </div>
+          <div className="field"><label>Job</label><select value={mtForm.jobId} onChange={e => mtChange('jobId', e.target.value)}><option value="">Select job</option>{data.jobs.map(j => <option key={j.id} value={j.id}>{j.job_number} — {j.description}</option>)}</select></div>
           <div className="grid two">
             <div className="field"><label>Material</label><select value={mtForm.materialId} onChange={e => mtChange('materialId', e.target.value)}><option value="">Select material</option>{data.materials.filter(m => m.active).map(m => <option key={m.id} value={m.id}>{m.item_code} — {m.description} ({m.unit_of_measure})</option>)}</select></div>
             <div className="field"><label>Employee</label><select value={mtForm.employeeId} onChange={e => mtChange('employeeId', e.target.value)}><option value="">Select employee</option>{data.employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}</select></div>
@@ -321,12 +313,11 @@ export default function PayrollPage() {
           <div className="field" style={{ maxWidth: '220px' }}><label>Date</label><input type="date" value={attDate} onChange={e => setAttDate(e.target.value)} /></div>
           {missingToday > 0 ? <div className="alert error">{missingToday} of {activeEmployees.length} employees did not clock in on {attDate}.</div> : <div className="alert success">Everyone clocked in on {attDate}.</div>}
           <div className="table-wrap"><table className="table compact-table">
-            <thead><tr><th>Employee</th><th>Department</th><th>Status</th><th>Hours</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Status</th><th>Hours</th></tr></thead>
             <tbody>
-              {dailyAttendance.length === 0 ? <tr><td colSpan="4" className="muted">No active employees.</td></tr> : dailyAttendance.map(r => (
+              {dailyAttendance.length === 0 ? <tr><td colSpan="3" className="muted">No active employees.</td></tr> : dailyAttendance.map(r => (
                 <tr key={r.employee.id}>
                   <td>{r.employee.full_name}</td>
-                  <td>{r.employee.department_name || '—'}</td>
                   <td>{r.status === 'none' ? <span className="badge" style={{ background: '#fee2e2', color: '#991b1b' }}>No clock-in</span> : r.status === 'worked' ? <span className="badge active">Worked</span> : <span className="badge">{cap(r.status)}</span>}</td>
                   <td>{r.hours ? hoursFmt(r.hours) : '—'}</td>
                 </tr>

@@ -4,7 +4,7 @@ import { query } from '../../../../lib/db';
 
 export async function POST(request) {
   try {
-    const auth = await requireSession(['employee', 'supervisor', 'admin']);
+    const auth = await requireSession(['employee', 'admin']);
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const { entryType } = await request.json().catch(() => ({}));
     if (!['indirect', 'training', 'break'].includes(entryType)) return NextResponse.json({ error: 'Choose a valid time type.' }, { status: 400 });

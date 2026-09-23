@@ -8,7 +8,7 @@ export default function LoginPage(){
   const router=useRouter();
   const [employeeCode,setEmployeeCode]=useState(''); const [pin,setPin]=useState(''); const [error,setError]=useState(''); const [busy,setBusy]=useState(false);
   async function submit(e){ e.preventDefault(); setBusy(true); setError('');
-    try{ const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({employeeCode,pin})}); const data=await res.json(); if(!res.ok) throw new Error(data.error||'Login failed'); router.push(data.user.role==='employee'?'/employee':data.user.role==='admin'?'/admin':'/supervisor'); router.refresh(); }
+    try{ const res=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({employeeCode,pin})}); const data=await res.json(); if(!res.ok) throw new Error(data.error||'Login failed'); router.push(data.user.role==='admin'?'/admin':'/employee'); router.refresh(); }
     catch(err){setError(err.message);} finally{setBusy(false);} }
   return <main className="shell"><div className="topbar"><a className="brand" href="/"><BrandMark />MASTERCRAFT</a></div><div className="container narrow">
     <div className="card login-card"><div className="kicker">Shop Management</div><h1>Sign in</h1><p className="muted">Use your employee code and PIN.</p>

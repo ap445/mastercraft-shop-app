@@ -56,20 +56,15 @@ export default function JobCostingPage() {
       plannedMaterialCostByJob[jm.job_id] = (plannedMaterialCostByJob[jm.job_id] || 0) + amt;
     });
     return data.jobs.map(j => {
-      const estimated = Number(j.estimated_hours || 0);
       const actual = actualHoursByJob[j.id] || 0;
       const plannedMaterialCost = plannedMaterialCostByJob[j.id] || 0;
       const materialCost = materialCostByJob[j.id] || 0;
       return {
         ...j,
-        estimatedHours: estimated,
         actualHours: actual,
-        variance: actual - estimated,
         materialCost,
         plannedMaterialCost,
         materialVariance: materialCost - plannedMaterialCost,
-        opsTotal: Number(j.operations_total || 0),
-        opsComplete: Number(j.operations_complete || 0),
         activeNow: openCountByJob[j.id] || 0
       };
     });
@@ -85,12 +80,12 @@ export default function JobCostingPage() {
     const mt = data.materialTransactions.filter(m => String(m.job_id) === String(job.id));
     const jm = (data.jobMaterials || []).filter(m => String(m.job_id) === String(job.id));
     const rows = [
-      ['Job', 'Customer', 'Description', 'Status', 'Estimated Hours', 'Actual Hours', 'Variance (Actual - Estimated)', 'Planned Material Cost', 'Actual Material Cost', 'Material Variance (Actual - Planned)'],
-      [job.job_number, job.customer_name || '', job.description || '', job.status, hoursFmt(job.estimatedHours), hoursFmt(job.actualHours), hoursFmt(job.variance), job.plannedMaterialCost.toFixed(2), job.materialCost.toFixed(2), job.materialVariance.toFixed(2)],
+      ['Job', 'Customer', 'Description', 'Status', 'Actual Hours', 'Planned Material Cost', 'Actual Material Cost', 'Material Variance (Actual - Planned)'],
+      [job.job_number, job.customer_name || '', job.description || '', job.status, hoursFmt(job.actualHours), job.plannedMaterialCost.toFixed(2), job.materialCost.toFixed(2), job.materialVariance.toFixed(2)],
       [],
       ['Time Entries'],
-      ['Employee', 'Operation', 'Started', 'Stopped', 'Hours'],
-      ...te.map(t => [t.employee_name, t.operation_name || '', t.started_at, t.stopped_at || 'still running', hoursFmt(t.hours)]),
+      ['Employee', 'Started', 'Stopped', 'Hours'],
+      ...te.map(t => [t.employee_name, t.started_at, t.stopped_at || 'still running', hoursFmt(t.hours)]),
       [],
       ['Planned Materials'],
       ['Material', 'Planned Quantity', 'Standard Cost', 'Planned Total', 'Notes'],
@@ -105,8 +100,8 @@ export default function JobCostingPage() {
 
   function exportSummaryCsv() {
     const rows = [
-      ['Job', 'Customer', 'Status', 'Operations Complete', 'Operations Total', 'Estimated Hours', 'Actual Hours', 'Variance', 'Planned Material Cost', 'Actual Material Cost', 'Material Variance'],
-      ...jobRows.map(j => [j.job_number, j.customer_name || '', j.status, j.opsComplete, j.opsTotal, hoursFmt(j.estimatedHours), hoursFmt(j.actualHours), hoursFmt(j.variance), j.plannedMaterialCost.toFixed(2), j.materialCost.toFixed(2), j.materialVariance.toFixed(2)])
+      ['Job', 'Customer', 'Status', 'Actual Hours', 'Planned Material Cost', 'Actual Material Cost', 'Material Variance'],
+      ...jobRows.map(j => [j.job_number, j.customer_name || '', j.status, hoursFmt(j.actualHours), j.plannedMaterialCost.toFixed(2), j.materialCost.toFixed(2), j.materialVariance.toFixed(2)])
     ];
     downloadCsv('mastercraft-job-costing-summary.csv', rows);
   }
@@ -136,16 +131,13 @@ export default function JobCostingPage() {
         <div className="kicker">All jobs</div>
         <div className="table-wrap">
           <table className="table">
-            <thead><tr><th>Job</th><th>Status</th><th>Progress</th><th>Est. hrs</th><th>Actual hrs</th><th>Variance</th><th>Planned materials</th><th>Actual materials</th><th>Material variance</th><th></th></tr></thead>
+            <thead><tr><th>Job</th><th>Status</th><th>Actual hrs</th><th>Planned materials</th><th>Actual materials</th><th>Material variance</th><th></th></tr></thead>
             <tbody>
-              {jobRows.length === 0 ? <tr><td colSpan="10" className="muted">No jobs yet.</td></tr> : jobRows.map(j => (
+              {jobRows.length === 0 ? <tr><td colSpan="7" className="muted">No jobs yet.</td></tr> : jobRows.map(j => (
                 <tr key={j.id} style={{ cursor: 'pointer', background: String(j.id) === String(selectedJobId) ? '#f3f4f6' : undefined }} onClick={() => setSelectedJobId(j.id)}>
                   <td><strong>{j.job_number}</strong><br /><span className="muted">{j.customer_name || '—'}</span></td>
                   <td><span className="badge">{String(j.status).replaceAll('_', ' ')}</span>{j.activeNow > 0 ? <span className="badge active"> {j.activeNow} active</span> : null}</td>
-                  <td>{j.opsComplete}/{j.opsTotal} ops</td>
-                  <td>{hoursFmt(j.estimatedHours)}</td>
                   <td>{hoursFmt(j.actualHours)}</td>
-                  <td style={{ color: j.variance > 0 ? '#991b1b' : j.variance < 0 ? '#166534' : undefined, fontWeight: 800 }}>{j.variance > 0 ? '+' : ''}{hoursFmt(j.variance)}</td>
                   <td>{money(j.plannedMaterialCost)}</td>
                   <td>{money(j.materialCost)}</td>
                   <td style={{ color: j.materialVariance > 0 ? '#991b1b' : j.materialVariance < 0 ? '#166534' : undefined, fontWeight: 800 }}>{j.materialVariance > 0 ? '+' : ''}{money(j.materialVariance)}</td>
@@ -160,7 +152,7 @@ export default function JobCostingPage() {
       {selectedJob ? <div className="card">
         <div className="kicker">Detail</div>
         <h2>{selectedJob.job_number} — {selectedJob.description}</h2>
-        <p className="muted">{selectedJob.customer_name || 'No customer on file'} · {hoursFmt(selectedJob.actualHours)} of {hoursFmt(selectedJob.estimatedHours)} estimated hours logged · {money(selectedJob.materialCost)} actual vs {money(selectedJob.plannedMaterialCost)} planned in materials · <a href={`/admin?detail=job-${selectedJob.id}#records`}>View full job record (schedule &amp; assignments) →</a></p>
+        <p className="muted">{selectedJob.customer_name || 'No customer on file'} · {hoursFmt(selectedJob.actualHours)} hours logged · {money(selectedJob.materialCost)} actual vs {money(selectedJob.plannedMaterialCost)} planned in materials · <a href={`/admin?detail=job-${selectedJob.id}#records`}>View full job record →</a></p>
 
         <div className="kicker" style={{ marginTop: '14px' }}>Planned materials</div>
         <div className="table-wrap">
@@ -182,12 +174,11 @@ export default function JobCostingPage() {
         <div className="kicker" style={{ marginTop: '14px' }}>Time entries</div>
         <div className="table-wrap">
           <table className="table compact-table">
-            <thead><tr><th>Employee</th><th>Operation</th><th>Started</th><th>Stopped</th><th>Hours</th></tr></thead>
+            <thead><tr><th>Employee</th><th>Started</th><th>Stopped</th><th>Hours</th></tr></thead>
             <tbody>
-              {selectedTimeEntries.length === 0 ? <tr><td colSpan="5" className="muted">No time logged on this job yet.</td></tr> : selectedTimeEntries.map(te => (
+              {selectedTimeEntries.length === 0 ? <tr><td colSpan="4" className="muted">No time logged on this job yet.</td></tr> : selectedTimeEntries.map(te => (
                 <tr key={te.id}>
                   <td><Xref type="employee" id={te.employee_id}>{te.employee_name}</Xref></td>
-                  <td><Xref type="operation" id={te.operation_id}>{te.operation_name || '—'}</Xref></td>
                   <td>{fmtDateTime(te.started_at)}</td>
                   <td>{te.stopped_at ? fmtDateTime(te.stopped_at) : <span className="badge active">still running</span>}</td>
                   <td>{hoursFmt(te.hours)}</td>

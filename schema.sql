@@ -1,19 +1,17 @@
--- Mastercraft Shop Management v0.3
+-- Mastercraft Shop Management v0.4
 -- Render PostgreSQL schema. Safe to run repeatedly.
+-- v0.4 simplifies the app down to: jobs + planned materials, and employees
+-- clocking in against a job and logging material used. Departments,
+-- scheduled operations, supervisor assignments, and daily guidance were
+-- removed — the statements below clean those up on an already-deployed
+-- database (each is a no-op once it has already run).
 create extension if not exists pgcrypto;
-
-create table if not exists departments (
-  id bigserial primary key,
-  name text not null unique,
-  active boolean not null default true
-);
 
 create table if not exists employees (
   id bigserial primary key,
   employee_code text not null unique,
   full_name text not null,
-  department_id bigint references departments(id),
-  role text not null default 'employee' check (role in ('employee','supervisor','admin')),
+  role text not null default 'employee' check (role in ('employee','admin')),
   pin_hash text,
   active boolean not null default true,
   created_at timestamptz not null default now()
@@ -30,33 +28,10 @@ create table if not exists jobs (
   created_at timestamptz not null default now()
 );
 
-create table if not exists operations (
-  id bigserial primary key,
-  job_id bigint not null references jobs(id) on delete cascade,
-  department_id bigint not null references departments(id),
-  operation_name text not null,
-  sequence_no integer not null default 1,
-  estimated_hours numeric(10,2),
-  planned_start timestamptz,
-  planned_finish timestamptz,
-  status text not null default 'queued' check (status in ('queued','ready','in_progress','paused','blocked','complete')),
-  completed_at timestamptz,
-  unique(job_id, sequence_no)
-);
-
-create table if not exists assignments (
-  id bigserial primary key,
-  operation_id bigint not null references operations(id) on delete cascade,
-  employee_id bigint not null references employees(id),
-  assigned_at timestamptz not null default now(),
-  unique(operation_id, employee_id)
-);
-
 create table if not exists time_entries (
   id bigserial primary key,
   employee_id bigint not null references employees(id),
   job_id bigint references jobs(id),
-  operation_id bigint references operations(id),
   entry_type text not null default 'direct' check (entry_type in ('direct','indirect','break','training','pto','holiday')),
   started_at timestamptz not null,
   stopped_at timestamptz,
@@ -70,7 +45,6 @@ create unique index if not exists one_open_time_entry_per_employee
 on time_entries(employee_id) where stopped_at is null;
 
 create index if not exists time_entries_job_idx on time_entries(job_id, started_at);
-create index if not exists time_entries_operation_idx on time_entries(operation_id, started_at);
 
 create table if not exists materials (
   id bigserial primary key,
@@ -82,62 +56,9 @@ create table if not exists materials (
   active boolean not null default true
 );
 
-create table if not exists daily_guidance (
-  id bigserial primary key,
-  scope_type text not null check (scope_type in ('role','department')),
-  role text check (role in ('employee','supervisor','admin')),
-  department_id bigint references departments(id) on delete cascade,
-  title text not null,
-  instructions text,
-  daily_goal text,
-  active boolean not null default true,
-  created_at timestamptz not null default now(),
-  check ((scope_type='role' and role is not null and department_id is null) or (scope_type='department' and department_id is not null and role is null))
-);
-create unique index if not exists daily_guidance_role_unique on daily_guidance(role) where scope_type='role';
-create unique index if not exists daily_guidance_department_unique on daily_guidance(department_id) where scope_type='department';
-
--- widen daily_guidance to support a 'job' scope (one note per job+department combo)
-alter table daily_guidance drop constraint if exists daily_guidance_scope_type_check;
-alter table daily_guidance add constraint daily_guidance_scope_type_check check (scope_type in ('role','department','job'));
-alter table daily_guidance add column if not exists job_id bigint references jobs(id) on delete cascade;
-do $$
-declare rec record;
-begin
-  for rec in select conname from pg_constraint where conrelid='daily_guidance'::regclass and contype='c' and conname <> 'daily_guidance_scope_type_check' loop
-    execute format('alter table daily_guidance drop constraint %I', rec.conname);
-  end loop;
-end $$;
-alter table daily_guidance add constraint daily_guidance_scope_check check (
-  (scope_type='role' and role is not null and department_id is null and job_id is null) or
-  (scope_type='department' and department_id is not null and role is null and job_id is null) or
-  (scope_type='job' and job_id is not null and department_id is not null and role is null)
-);
-create unique index if not exists daily_guidance_job_department_unique on daily_guidance(job_id, department_id) where scope_type='job';
-
--- allow a job-scoped expectation to be tied to one specific calendar day, so a
--- department scheduled for several days on a job can get a different daily goal
--- for each day, instead of one note covering the whole span
-alter table daily_guidance add column if not exists guidance_date date;
-drop index if exists daily_guidance_job_department_unique;
-create unique index if not exists daily_guidance_job_department_nodate_unique on daily_guidance(job_id, department_id) where scope_type='job' and guidance_date is null;
-create unique index if not exists daily_guidance_job_department_date_unique on daily_guidance(job_id, department_id, guidance_date) where scope_type='job' and guidance_date is not null;
-
-create table if not exists guidance_attachments (
-  id bigserial primary key,
-  guidance_id bigint not null references daily_guidance(id) on delete cascade,
-  filename text not null,
-  content_type text not null,
-  file_size bigint not null,
-  file_data bytea not null,
-  uploaded_at timestamptz not null default now()
-);
-create index if not exists guidance_attachments_guidance_idx on guidance_attachments(guidance_id);
-
 create table if not exists material_transactions (
   id bigserial primary key,
   job_id bigint references jobs(id),
-  operation_id bigint references operations(id),
   material_id bigint not null references materials(id),
   employee_id bigint not null references employees(id),
   transaction_type text not null check (transaction_type in ('issue','return')),
@@ -168,3 +89,25 @@ create table if not exists job_materials (
 );
 
 create index if not exists job_materials_job_idx on job_materials(job_id);
+
+-- v0.4 cleanup: drop the scheduling/department/guidance layer. Order matters —
+-- child tables and dependent columns go first so the FK constraints allow it.
+drop table if exists guidance_attachments;
+drop table if exists daily_guidance;
+drop table if exists assignments;
+alter table time_entries drop column if exists operation_id;
+alter table material_transactions drop column if exists operation_id;
+drop table if exists operations;
+
+update employees set role='employee' where role not in ('employee','admin');
+do $$
+declare rec record;
+begin
+  for rec in select conname from pg_constraint where conrelid='employees'::regclass and contype='c' and pg_get_constraintdef(oid) ilike '%role%' loop
+    execute format('alter table employees drop constraint %I', rec.conname);
+  end loop;
+end $$;
+alter table employees add constraint employees_role_check check (role in ('employee','admin'));
+alter table employees drop column if exists department_id;
+
+drop table if exists departments;
