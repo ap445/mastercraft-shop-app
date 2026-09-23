@@ -23,7 +23,7 @@ function weekLayout(week,ops,maxTracks){const weekStart=week[0],weekEnd=week[6];
 
 
 export default function AdminPage(){
-  const router=useRouter(); const [data,setData]=useState(null); const [forms,setForms]=useState(blank); const [error,setError]=useState(''); const [notice,setNotice]=useState(''); const [busy,setBusy]=useState(false); const [importing,setImporting]=useState(false); const [importFeedback,setImportFeedback]=useState(''); const [calView,setCalView]=useState('month'); const [calAnchor,setCalAnchor]=useState(()=>{const d=new Date();d.setHours(0,0,0,0);return d;}); const [recordDetail,setRecordDetail]=useState(null); const [pendingScroll,setPendingScroll]=useState(false); const [openForms,setOpenForms]=useState({team:false,departments:false,materials:false,guidance:false}); const [recordsTab,setRecordsTab]=useState('jobs');
+  const router=useRouter(); const [data,setData]=useState(null); const [forms,setForms]=useState(blank); const [error,setError]=useState(''); const [notice,setNotice]=useState(''); const [busy,setBusy]=useState(false); const [importing,setImporting]=useState(false); const [importFeedback,setImportFeedback]=useState(''); const [calView,setCalView]=useState('month'); const [calAnchor,setCalAnchor]=useState(()=>{const d=new Date();d.setHours(0,0,0,0);return d;}); const [recordDetail,setRecordDetail]=useState(null); const [pendingScroll,setPendingScroll]=useState(false); const [openForms,setOpenForms]=useState({team:false,departments:false,materials:false,guidance:false,danger:false}); const [recordsTab,setRecordsTab]=useState('jobs'); const [resetConfirm,setResetConfirm]=useState('');
   function openForm(name){setOpenForms(f=>({...f,[name]:true}));}
   function toggleForm(name){setOpenForms(f=>({...f,[name]:!f[name]}));}
   const detail=useMemo(()=>{
@@ -191,6 +191,20 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
       setNotice(nextActive?'Reactivated.':'Deactivated.');
     }catch(err){setError(err.message)}finally{setBusy(false)}
   }
+  async function resetAllData(){
+    if(resetConfirm!=='RESET'){setError('Type RESET (all caps) in the box to confirm.');return;}
+    if(!confirm('This permanently deletes every job, schedule step, time entry, material transaction, department, team member, and material. Only the login you\'re using right now will be kept. This cannot be undone. Continue?'))return;
+    setBusy(true);setError('');setNotice('');
+    try{
+      const res=await fetch('/api/admin/setup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'resetAllData',confirm:resetConfirm})});
+      const json=await res.json();if(!res.ok)throw new Error(json.error);
+      setResetConfirm('');
+      setRecordDetail(null);
+      setForms(blank);
+      await load();
+      setNotice('All test data cleared. Your login was kept — everything else is empty and ready for your real setup.');
+    }catch(err){setError(err.message)}finally{setBusy(false)}
+  }
   async function removeEntity(type,id,label){
     if(!confirm(`Delete this ${label}? This can't be undone.`))return;
     setBusy(true);setError('');setNotice('');
@@ -290,5 +304,13 @@ function renderCalWeek(week,ops,maxTracks,showDayName){const today=ymdKey(new Da
       </div>
       {renderDetail()}
     </section>
+    <div id="danger-zone" className="card" style={{borderColor:'#c01311'}}>
+      <button type="button" className="collapse-toggle" onClick={()=>toggleForm('danger')}><span className="collapse-caret">{openForms.danger?'▾':'▸'}</span><div><div className="kicker">Danger zone</div><h2>Clear all data</h2></div></button>
+      {openForms.danger?<div>
+        <p className="muted">Permanently deletes every job, schedule step, time entry, material transaction, department, team member, and material — a full reset back to an empty app. Your own login stays so you can sign back in afterward. This cannot be undone.</p>
+        <div className="field"><label>Type RESET to confirm</label><input value={resetConfirm} onChange={e=>setResetConfirm(e.target.value)} placeholder="RESET" /></div>
+        <button type="button" disabled={busy||resetConfirm!=='RESET'} className="btn danger" onClick={resetAllData}>PERMANENTLY DELETE ALL DATA</button>
+      </div>:null}
+    </div>
   </div></main>;
 }

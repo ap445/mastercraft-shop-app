@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import { NextResponse } from 'next/server';
-import { query } from '../../../../lib/db';
+import { query, getDb } from '../../../../lib/db';
 import { requireSession } from '../../../../lib/session';
 
 async function requireAdmin() {
@@ -67,6 +67,29 @@ export async function POST(request) {
     if (auth.error) return NextResponse.json({ error: auth.error }, { status: auth.status });
     const body = await request.json();
     const { type } = body;
+    if (type === 'resetAllData') {
+      if (body.confirm !== 'RESET') throw new Error('Type RESET (all caps) to confirm — this permanently deletes every job, time entry, material transaction, department, team member, and material.');
+      const keepId = auth.session.employeeId;
+      const client = await getDb().connect();
+      try {
+        await client.query('begin');
+        await client.query('delete from material_transactions');
+        await client.query('delete from time_entries');
+        await client.query('delete from daily_guidance');
+        await client.query('delete from jobs');
+        await client.query('delete from materials');
+        await client.query('update employees set department_id=null where id=$1', [keepId]);
+        await client.query('delete from employees where id<>$1', [keepId]);
+        await client.query('delete from departments');
+        await client.query('commit');
+      } catch (e) {
+        await client.query('rollback');
+        throw e;
+      } finally {
+        client.release();
+      }
+      return NextResponse.json({ ok: true });
+    }
     if (type === 'department') {
       if (!body.name?.trim()) throw new Error('Department name is required.');
       try {
