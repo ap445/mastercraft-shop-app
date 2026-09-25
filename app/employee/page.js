@@ -46,9 +46,16 @@ export default function EmployeePage(){
   const [indirectType,setIndirectType]=useState('indirect');
   const [stopNotes,setStopNotes]=useState('');
   const [quickJobId,setQuickJobId]=useState('');
-  const load=useCallback(async()=>{ const res=await fetch('/api/employee/dashboard',{cache:'no-store'}); if(res.status===401){router.push('/login');return;} const json=await res.json(); if(!res.ok){setError(json.error||'Could not load');return;} setData(json); if(!materialId&&json.materials?.length)setMaterialId(String(json.materials[0].id)); },[router,materialId]);
+  const load=useCallback(async()=>{ const res=await fetch('/api/employee/dashboard',{cache:'no-store'}); if(res.status===401){router.push('/login');return;} const json=await res.json(); if(!res.ok){setError(json.error||'Could not load');return;} setData(json); },[router]);
   useEffect(()=>{load();},[load]);
   useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(t);},[]);
+  const materialOptions=useMemo(()=>{ if(!data)return []; return data.active?.jobs ? (data.jobMaterials||[]) : (data.materials||[]); },[data]);
+  useEffect(()=>{
+    if(!data)return;
+    const opts=data.active?.jobs ? (data.jobMaterials||[]) : (data.materials||[]);
+    setMaterialId(opts.length?String(opts[0].id):'__custom__');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[data?.active?.id]);
   const elapsed=useMemo(()=>{ if(!data?.active?.started_at)return '00:00:00'; const sec=Math.max(0,Math.floor((now-new Date(data.active.started_at).getTime())/1000)); const h=String(Math.floor(sec/3600)).padStart(2,'0'); const m=String(Math.floor(sec%3600/60)).padStart(2,'0'); const s=String(sec%60).padStart(2,'0'); return `${h}:${m}:${s}`;},[data?.active?.started_at,now]);
   async function action(url,body,label){setBusy(label);setError('');try{const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});const j=await res.json();if(!res.ok)throw new Error(j.error||'Action failed');await load();}catch(e){setError(e.message);}finally{setBusy('');}}
   async function startJob(){if(!quickJobId)return;await action('/api/employee/start-job',{jobId:Number(quickJobId)},'quickstart');setQuickJobId('');}
@@ -74,8 +81,9 @@ export default function EmployeePage(){
         <button disabled={!!busy} className="btn secondary" onClick={()=>stopWithNotes('stop')}>{busy==='stop'?'STOPPING...':active.jobs?'STOP / CHANGE JOB':'CLOCK OUT'}</button>
       </div>
       <div className="card" id="material"><div className="kicker">Material Usage</div><h2>Record material</h2>
-        <div className="field"><label>Material</label><select value={materialId} onChange={e=>setMaterialId(e.target.value)}>{data.materials.map(m=><option key={m.id} value={m.id}>{m.item_code?`${m.item_code} · `:''}{m.description} ({m.unit_of_measure})</option>)}<option value="__custom__">Other (not in our list)</option></select></div>
-        {materialId==='__custom__'?<div className="field"><label>What did you use?</label><input value={customMaterial} onChange={e=>setCustomMaterial(e.target.value)} placeholder="e.g. 2x4 scrap lumber" /></div>:null}
+        {active.jobs&&materialOptions.length===0?<p className="muted">No materials are planned for this job yet — describe what you used below.</p>:null}
+        <div className="field"><label>Material</label><select value={materialId} onChange={e=>setMaterialId(e.target.value)}>{materialOptions.map(m=><option key={m.id} value={m.id}>{m.item_code?`${m.item_code} · `:''}{m.description} ({m.unit_of_measure})</option>)}<option value="__custom__">Other (not on this list) — describe it</option></select></div>
+        {materialId==='__custom__'?<div className="field"><label>Describe what you used</label><input value={customMaterial} onChange={e=>setCustomMaterial(e.target.value)} placeholder="e.g. 2x4 scrap lumber" /></div>:null}
         <div className="grid two"><div className="field"><label>Quantity</label><input type="number" min="1" step="1" inputMode="numeric" pattern="[0-9]*" value={qty} onChange={e=>setQty(e.target.value.replace(/[^0-9]/g,''))} /></div><div className="field"><label>Type</label><select value={transactionType} onChange={e=>setTransactionType(e.target.value)}><option value="issue">Issue / Use</option><option value="return">Return</option></select></div></div>
         <button disabled={!!busy||!materialId||(materialId==='__custom__'&&!customMaterial.trim())} className="btn primary" onClick={recordMaterial}>{busy==='material'?'SAVING...':'RECORD MATERIAL'}</button>
       </div>
