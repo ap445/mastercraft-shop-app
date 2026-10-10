@@ -223,6 +223,34 @@ export async function POST(request) {
       await query('delete from material_transactions where id=$1', [id]);
       return NextResponse.json({ ok: true });
     }
+    if (type === 'clearPayrollPeriod') {
+      const { start, end, confirm } = body;
+      if (!start || !end) throw new Error('Choose a start and end date.');
+      if (confirm !== 'DELETE') throw new Error('Type DELETE (all caps) to confirm — this permanently deletes this period\'s time entries and material log.');
+      const startTs = `${start}T00:00:00`;
+      const endDate = new Date(`${end}T00:00:00`);
+      endDate.setDate(endDate.getDate() + 1);
+      const endTs = endDate.toISOString();
+      const client = await getDb().connect();
+      try {
+        await client.query('begin');
+        const teR = await client.query(
+          `delete from time_entries where started_at>=$1 and started_at<$2 and stopped_at is not null returning id`,
+          [startTs, endTs]
+        );
+        const mtR = await client.query(
+          `delete from material_transactions where occurred_at>=$1 and occurred_at<$2 returning id`,
+          [startTs, endTs]
+        );
+        await client.query('commit');
+        return NextResponse.json({ ok: true, timeEntriesDeleted: teR.rowCount, materialTransactionsDeleted: mtR.rowCount });
+      } catch (e) {
+        await client.query('rollback');
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
     if (type === 'materialsImport') {
       if (!Array.isArray(body.materials) || body.materials.length === 0) throw new Error('Choose a CSV file with at least one material.');
       if (body.materials.length > 1000) throw new Error('Import up to 1,000 materials at a time.');

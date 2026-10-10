@@ -55,6 +55,9 @@ export default function PayrollPage() {
   const [mtFilterEmployee, setMtFilterEmployee] = useState('');
   const [payStart, setPayStart] = useState(() => daysAgoStr(6));
   const [payEnd, setPayEnd] = useState(() => todayStr());
+  const [exportedRange, setExportedRange] = useState('');
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState('');
   const [attView, setAttView] = useState('daily');
   const [attDate, setAttDate] = useState(() => todayStr());
   const [attWeekAnchor, setAttWeekAnchor] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; });
@@ -145,14 +148,26 @@ export default function PayrollPage() {
     return rows.slice(0, 300);
   }, [data, mtFilterEmployee]);
 
-  const payrollRows = useMemo(() => {
-    if (!data || !payStart || !payEnd) return [];
+  const periodBounds = useMemo(() => {
+    if (!payStart || !payEnd) return null;
     const start = new Date(payStart + 'T00:00:00');
     const end = new Date(payEnd + 'T00:00:00'); end.setDate(end.getDate() + 1);
+    return { start, end };
+  }, [payStart, payEnd]);
+
+  const periodTimeEntries = useMemo(() => {
+    if (!data || !periodBounds) return [];
+    return data.timeEntries.filter(te => { const d = new Date(te.started_at); return d >= periodBounds.start && d < periodBounds.end; });
+  }, [data, periodBounds]);
+
+  const periodMaterialTx = useMemo(() => {
+    if (!data || !periodBounds) return [];
+    return data.materialTransactions.filter(mt => { const d = new Date(mt.occurred_at); return d >= periodBounds.start && d < periodBounds.end; });
+  }, [data, periodBounds]);
+
+  const payrollRows = useMemo(() => {
     const byEmployee = {};
-    data.timeEntries.forEach(te => {
-      const started = new Date(te.started_at);
-      if (started < start || started >= end) return;
+    periodTimeEntries.forEach(te => {
       const key = te.employee_id;
       if (!byEmployee[key]) byEmployee[key] = { employeeId: key, employeeName: te.employee_name, byType: {}, total: 0 };
       const hrs = Number(te.hours || 0);
@@ -160,7 +175,19 @@ export default function PayrollPage() {
       byEmployee[key].total += hrs;
     });
     return Object.values(byEmployee).sort((a, b) => a.employeeName.localeCompare(b.employeeName));
-  }, [data, payStart, payEnd]);
+  }, [periodTimeEntries]);
+
+  const clearPreview = useMemo(() => {
+    let teCount = 0, teHours = 0, openCount = 0;
+    periodTimeEntries.forEach(te => {
+      if (!te.stopped_at) { openCount += 1; return; }
+      teCount += 1;
+      teHours += Number(te.hours || 0);
+    });
+    return { teCount, teHours, mtCount: periodMaterialTx.length, openCount };
+  }, [periodTimeEntries, periodMaterialTx]);
+
+  const periodExported = exportedRange === `${payStart}|${payEnd}`;
 
   const activeEmployees = useMemo(() => (data?.employees || []).filter(e => e.active !== false).sort((a, b) => a.full_name.localeCompare(b.full_name)), [data]);
 
@@ -181,12 +208,42 @@ export default function PayrollPage() {
     });
   }, [data, activeEmployees, weekDays]);
 
+  function materialLabel(m) { return m.item_code ? `${m.item_code} — ${m.material_description}` : (m.material_description || 'Unnamed material'); }
+
   function exportPayrollCsv() {
     const rows = [
-      ['Employee', ...ENTRY_TYPES.map(t => ENTRY_LABEL[t]), 'Total Hours', 'Period Start', 'Period End'],
-      ...payrollRows.map(r => [r.employeeName, ...ENTRY_TYPES.map(t => hoursFmt(r.byType[t] || 0)), hoursFmt(r.total), payStart, payEnd])
+      ['Payroll period', payStart, 'to', payEnd],
+      [],
+      ['Hours by employee'],
+      ['Employee', ...ENTRY_TYPES.map(t => ENTRY_LABEL[t]), 'Total Hours'],
+      ...payrollRows.map(r => [r.employeeName, ...ENTRY_TYPES.map(t => hoursFmt(r.byType[t] || 0)), hoursFmt(r.total)]),
+      [],
+      ['Time Entries (detail)'],
+      ['Employee', 'Type', 'Job', 'Started', 'Stopped', 'Hours', 'Notes'],
+      ...periodTimeEntries.map(t => [t.employee_name, ENTRY_LABEL[t.entry_type] || t.entry_type, t.job_number || '', t.started_at, t.stopped_at || 'still running', hoursFmt(t.hours), t.notes || '']),
+      [],
+      ['Material Log (detail)'],
+      ['Job', 'Material', 'Type', 'Quantity', 'Unit Cost', 'Total', 'Employee', 'Date', 'Notes'],
+      ...periodMaterialTx.map(m => [m.job_number || '', materialLabel(m), m.transaction_type, m.quantity, m.unit_cost ?? '', (Number(m.quantity) * Number(m.unit_cost || 0)).toFixed(2), m.employee_name, m.occurred_at, m.notes || ''])
     ];
-    downloadCsv(`mastercraft-payroll-${payStart}-to-${payEnd}.csv`, rows);
+    downloadCsv(`mastercraft-payroll-${payStart}-to-${payEnd}-full.csv`, rows);
+    setExportedRange(`${payStart}|${payEnd}`);
+  }
+
+  async function clearPayrollPeriod() {
+    if (clearConfirm !== 'DELETE' || !periodExported) return;
+    if (!confirm(`Permanently delete ${clearPreview.teCount} time entries and ${clearPreview.mtCount} material log entries from ${payStart} to ${payEnd}? This cannot be undone.`)) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const res = await fetch('/api/admin/setup', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'clearPayrollPeriod', start: payStart, end: payEnd, confirm: clearConfirm }) });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error);
+      setClearConfirm('');
+      setClearOpen(false);
+      setExportedRange('');
+      await load();
+      setNotice(`Cleared ${json.timeEntriesDeleted} time entries and ${json.materialTransactionsDeleted} material log entries for ${payStart} to ${payEnd}.`);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
   }
 
   if (!data) return <main className="shell"><div className="container">{error ? <div className="card"><div className="alert error">{error}</div></div> : <div className="card">Loading payroll data...</div>}</div></main>;
@@ -356,6 +413,7 @@ export default function PayrollPage() {
           <div className="field"><label>End date</label><input type="date" value={payEnd} onChange={e => setPayEnd(e.target.value)} /></div>
         </div>
         <button type="button" className="btn secondary compact" onClick={exportPayrollCsv}>EXPORT CSV</button>
+        {periodExported ? <p className="hint" style={{ color: '#166534' }}>✓ Downloaded — this CSV has the hours summary plus every time entry and material log line for this period.</p> : <p className="hint">The CSV includes the hours summary below, plus full time entry and material log detail for this period — download it before paying payroll or clearing this period's data.</p>}
         <div className="table-wrap" style={{ marginTop: '14px' }}>
           <table className="table compact-table">
             <thead><tr><th>Employee</th>{ENTRY_TYPES.map(t => <th key={t}>{ENTRY_LABEL[t]}</th>)}<th>Total</th></tr></thead>
@@ -372,6 +430,23 @@ export default function PayrollPage() {
         </div>
         <p className="hint">A still-running timer counts up through right now. If someone's on the clock when you run this, stop their timer first (or correct it above) for a final number.</p>
       </section>
+
+      <div id="clear-period" className="card" style={{ borderColor: '#c01311' }}>
+        <button type="button" className="collapse-toggle" onClick={() => setClearOpen(o => !o)}>
+          <span className="collapse-caret">{clearOpen ? '▾' : '▸'}</span>
+          <div><div className="kicker">Danger zone</div><h2>Clear this period's data</h2></div>
+        </button>
+        {clearOpen ? <div>
+          <p className="muted">Once you've paid payroll for {payStart} to {payEnd}, you can permanently delete that period's time entries and material log here to keep things tidy. This cannot be undone, and it will also remove this period's hours and material cost from Job Costing for any jobs worked then — so make sure you've downloaded the CSV above first.</p>
+          <p className="muted">
+            This will delete <strong>{clearPreview.teCount} time {clearPreview.teCount === 1 ? 'entry' : 'entries'}</strong> ({hoursFmt(clearPreview.teHours)} hrs) and <strong>{clearPreview.mtCount} material log {clearPreview.mtCount === 1 ? 'entry' : 'entries'}</strong> dated {payStart} through {payEnd}.
+            {clearPreview.openCount > 0 ? ` ${clearPreview.openCount} still-running ${clearPreview.openCount === 1 ? 'entry' : 'entries'} in this range will be left alone.` : ''}
+          </p>
+          {!periodExported ? <div className="alert error">Export this period's CSV above first — the delete button unlocks once you have a full copy downloaded.</div> : null}
+          <div className="field"><label>Type DELETE to confirm</label><input value={clearConfirm} onChange={e => setClearConfirm(e.target.value)} placeholder="DELETE" /></div>
+          <button type="button" disabled={busy || clearConfirm !== 'DELETE' || !periodExported || (clearPreview.teCount === 0 && clearPreview.mtCount === 0)} className="btn danger" onClick={clearPayrollPeriod}>PERMANENTLY DELETE THIS PERIOD'S DATA</button>
+        </div> : null}
+      </div>
     </div>
   </main>;
 }
