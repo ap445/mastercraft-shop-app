@@ -437,14 +437,15 @@ export default function PayrollPage() {
           <div><div className="kicker">Danger zone</div><h2>Clear this period's data</h2></div>
         </button>
         {clearOpen ? <div>
-          <p className="muted">Once you've paid payroll for {payStart} to {payEnd}, you can permanently delete that period's time entries and material log here to keep things tidy. This cannot be undone, and it will also remove this period's hours and material cost from Job Costing for any jobs worked then — so make sure you've downloaded the CSV above first.</p>
+          <p className="muted">Once you've paid payroll for {payStart} to {payEnd} (change the dates in the Payroll report above if needed), you can permanently delete that period's time entries and material log here to keep things tidy. This cannot be undone, and it will also remove this period's hours and material cost from Job Costing for any jobs worked then — so export your records first using the button below.</p>
           <p className="muted">
             This will delete <strong>{clearPreview.teCount} time {clearPreview.teCount === 1 ? 'entry' : 'entries'}</strong> ({hoursFmt(clearPreview.teHours)} hrs) and <strong>{clearPreview.mtCount} material log {clearPreview.mtCount === 1 ? 'entry' : 'entries'}</strong> dated {payStart} through {payEnd}.
             {clearPreview.openCount > 0 ? ` ${clearPreview.openCount} still-running ${clearPreview.openCount === 1 ? 'entry' : 'entries'} in this range will be left alone.` : ''}
           </p>
-          {!periodExported ? <div className="alert error">Export this period's CSV above first — the delete button unlocks once you have a full copy downloaded.</div> : null}
-          <div className="field"><label>Type DELETE to confirm</label><input value={clearConfirm} onChange={e => setClearConfirm(e.target.value)} placeholder="DELETE" /></div>
-          <button type="button" disabled={busy || clearConfirm !== 'DELETE' || !periodExported || (clearPreview.teCount === 0 && clearPreview.mtCount === 0)} className="btn danger" onClick={clearPayrollPeriod}>PERMANENTLY DELETE THIS PERIOD'S DATA</button>
+          <button type="button" className="btn secondary compact" onClick={exportPayrollCsv}>{periodExported ? '✓ EXPORTED — DOWNLOAD AGAIN' : 'STEP 1: EXPORT THIS PERIOD\'S CSV'}</button>
+          {!periodExported ? <p className="hint">Download your copy of this period's hours, time entries, and material log above — the delete button unlocks once you have.</p> : <p className="hint" style={{ color: '#166534' }}>✓ You have a full copy of this period downloaded. It's safe to delete below if you're ready.</p>}
+          <div className="field" style={{ marginTop: '14px' }}><label>Step 2: Type DELETE to confirm</label><input value={clearConfirm} onChange={e => setClearConfirm(e.target.value)} placeholder="DELETE" /></div>
+          <button type="button" disabled={busy || clearConfirm !== 'DELETE' || !periodExported || (clearPreview.teCount === 0 && clearPreview.mtCount === 0)} className="btn danger" onClick={clearPayrollPeriod}>STEP 3: PERMANENTLY DELETE THIS PERIOD'S DATA</button>
         </div> : null}
       </div>
     </div>
