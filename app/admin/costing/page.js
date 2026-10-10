@@ -75,25 +75,49 @@ export default function JobCostingPage() {
   const selectedMaterialTx = data && selectedJobId ? data.materialTransactions.filter(mt => String(mt.job_id) === String(selectedJobId)) : [];
   const selectedPlannedMaterials = data && selectedJobId ? (data.jobMaterials || []).filter(jm => String(jm.job_id) === String(selectedJobId)) : [];
 
+  function materialLabel(m) { return m.item_code ? `${m.item_code} — ${m.material_description}` : (m.material_description || 'Unnamed material'); }
+
+  function buildDailyLog(te, mt) {
+    const dayKey = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    const byKey = {};
+    function row(date, employeeId, employeeName) {
+      const key = `${date}|${employeeId}`;
+      if (!byKey[key]) byKey[key] = { date, employeeName, hours: 0, materials: [] };
+      return byKey[key];
+    }
+    te.forEach(t => { row(dayKey(t.started_at), t.employee_id, t.employee_name).hours += Number(t.hours || 0); });
+    mt.forEach(m => {
+      const r = row(dayKey(m.occurred_at), m.employee_id, m.employee_name);
+      const verb = m.transaction_type === 'return' ? 'returned' : 'used';
+      r.materials.push(`${materialLabel(m)} — ${verb} ${m.quantity}${m.unit_of_measure ? ' ' + m.unit_of_measure : ''}`);
+    });
+    return Object.values(byKey).sort((a, b) => a.date === b.date ? a.employeeName.localeCompare(b.employeeName) : a.date.localeCompare(b.date));
+  }
+
   function exportJobCsv(job) {
     const te = data.timeEntries.filter(t => String(t.job_id) === String(job.id));
     const mt = data.materialTransactions.filter(m => String(m.job_id) === String(job.id));
     const jm = (data.jobMaterials || []).filter(m => String(m.job_id) === String(job.id));
+    const dailyLog = buildDailyLog(te, mt);
     const rows = [
       ['Job', 'Customer', 'Description', 'Status', 'Actual Hours', 'Planned Material Cost', 'Actual Material Cost', 'Material Variance (Actual - Planned)'],
       [job.job_number, job.customer_name || '', job.description || '', job.status, hoursFmt(job.actualHours), job.plannedMaterialCost.toFixed(2), job.materialCost.toFixed(2), job.materialVariance.toFixed(2)],
       [],
-      ['Time Entries'],
+      ['Daily Log — who worked what hours, and what material was used, by day'],
+      ['Date', 'Employee', 'Hours', 'Materials Used'],
+      ...dailyLog.map(r => [r.date, r.employeeName, r.hours ? hoursFmt(r.hours) : '', r.materials.join('; ') || '—']),
+      [],
+      ['Time Entries (detail)'],
       ['Employee', 'Started', 'Stopped', 'Hours'],
       ...te.map(t => [t.employee_name, t.started_at, t.stopped_at || 'still running', hoursFmt(t.hours)]),
       [],
       ['Planned Materials'],
       ['Material', 'Planned Quantity', 'Standard Cost', 'Planned Total', 'Notes'],
-      ...jm.map(m => [`${m.item_code} — ${m.material_description}`, m.planned_quantity, m.standard_cost ?? '', (Number(m.planned_quantity) * Number(m.standard_cost || 0)).toFixed(2), m.notes || '']),
+      ...jm.map(m => [materialLabel(m), m.planned_quantity, m.standard_cost ?? '', (Number(m.planned_quantity) * Number(m.standard_cost || 0)).toFixed(2), m.notes || '']),
       [],
-      ['Material Transactions (Actual)'],
+      ['Material Transactions (detail)'],
       ['Material', 'Type', 'Quantity', 'Unit Cost', 'Total', 'Employee', 'Date'],
-      ...mt.map(m => [`${m.item_code} — ${m.material_description}`, m.transaction_type, m.quantity, m.unit_cost ?? '', (Number(m.quantity) * Number(m.unit_cost || 0)).toFixed(2), m.employee_name, m.occurred_at])
+      ...mt.map(m => [materialLabel(m), m.transaction_type, m.quantity, m.unit_cost ?? '', (Number(m.quantity) * Number(m.unit_cost || 0)).toFixed(2), m.employee_name, m.occurred_at])
     ];
     downloadCsv(`${job.job_number}-cost-detail.csv`, rows);
   }
